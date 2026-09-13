@@ -1,0 +1,132 @@
+[theme]
+orientation = "portrait"
+wallpaper = "background.jpg"
+font = "LiberationMono-Regular.ttf"
+
+[[widget.label]]
+x = 8
+y = 0
+width = 170
+height = 50
+format = "takeru"
+size = 32
+color = "#ffffff"
+
+[[widget.label]]
+x = 80
+y = 90
+width = 302
+height = 46
+source = "time"
+format = "{value:%H:%M:%S}"
+size = 56
+color = "#11E3F5"
+font = "LiberationMono-Bold.ttf"
+
+[[widget.label]]
+x = 96
+y = 138
+width = 270
+height = 30
+locale = "en_US.UTF-8"
+source = "time"
+format = "{value:%a, %d %b %Y}"
+size = 28
+color = "#ffffff"
+font = "LiberationMono-Bold.ttf"
+
+[[widget.gauge]]
+x = 56
+y = 190
+width = 160 
+height = 160
+fps = 1 
+source = "memory"
+label = "MEM"
+format = "{used_gb:.0f}/{total_gb:.0f}G"
+label_size = 24
+size = 14
+color_by = "position"
+gradient = ["#22dd66", "#ffd022", "#ff3b30"]
+
+[[widget.gauge]]
+x = 248
+y = 190
+width = 160 
+height = 160 
+fps = 1 
+source = "disk"
+path = "/" 
+label = "DISK"
+format = "{free_gb:.0f}G free"
+label_size = 22
+size = 13
+color_by = "position"
+gradient = ["#22dd66", "#ffd022", "#ff3b30"]
+
+[[widget.label]]
+x = 152
+y = 360
+width = 158
+height = 40
+format = "NETWORK"
+size = 32
+color = "#ffffff"
+
+[[widget.graph]]
+x = 72
+y = 400
+width = 318
+height = 160
+fps = 5
+source = "network"
+interface = "eno1"              # omit to sum every interface but loopback
+scale = "log"                   # log, linear
+min = 1024                      # 1 KB/s reads as nothing
+max = 12500000
+origin = "#46506e"              # the centre line
+gradient = ["#11e3f5", "#66f0ff"]        # upload, above
+gradient_down = ["#fd44dd", "#ff99ee"]   # download, below
+fill = "#18243c"
+fill_alpha = 0.45
+points = 75
+
+[[widget.label]]
+x = 152
+y = 570
+width = 158
+height = 40
+format = "CPU"
+size = 32
+color = "#ffffff"
+
+[[widget.graph]]
+x = 72
+y = 610
+width = 318
+height = 140
+fps = 5
+source = "cpu"
+gradient = ["#11e3f5", "#fd44dd"]
+fill = "#18243c"
+fill_alpha = 0.5
+points = 75
+
+[[widget.spectrum]]
+x = 72
+y = 772
+width = 318
+height = 318
+fps = 30
+type = "radial" # radial, segmented, mirrored, bars
+inner = 0.3
+reverse = false
+peaks = true
+peak_hold = 0.3
+peak_gravity = 4
+bars = 48
+origin = "#003c46"
+origin_width = 2
+channels = "stereo"
+gradient = ["#FD44DD", "#11E3F5"]
+smoothing = 30

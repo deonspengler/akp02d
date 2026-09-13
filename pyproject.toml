@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "akp02d"
+dynamic = ["version"]
+description = "Themed system stats display for the Ajazz AKP02 panel"
+requires-python = ">=3.11"
+dependencies = ["akp02>=2.0.0", "pillow>=10.1"]
+
+[project.scripts]
+akp02d = "akp02d.__main__:main"
+
+[tool.hatch.version]
+path = "akp02d/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["akp02d"]
+artifacts = ["akp02d/themes/**"]

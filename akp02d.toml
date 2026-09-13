@@ -1,0 +1,11 @@
+# akp02d: machine-side settings. Layout and orientation live in the theme.
+
+fps = 30
+theme = "default"
+
+[device]
+inverted = false            # panel mounted the other way up
+brightness = 80             # 0-100
+jpeg_quality =  80          # 1-95
+jpeg_subsampling = 0        # -1 auto, 0 = 4:4:4, 1 = 4:2:2, 2 = 4:2:0
+clear_on_exit = true
