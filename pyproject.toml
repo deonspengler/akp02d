@@ -9,8 +9,16 @@ description = "Themed system stats display for the Ajazz AKP02 panel"
 requires-python = ">=3.11"
 dependencies = ["akp02>=2.0.0", "pillow>=10.1"]
 
+[project.optional-dependencies]
+# The theme editor. The daemon never imports it.
+editor = ["PySide6-Essentials>=6.5"]
+test = ["pytest>=7"]
+
 [project.scripts]
 akp02d = "akp02d.__main__:main"
+
+[project.gui-scripts]
+akp02d-edit = "akp02d.editor.__main__:main"
 
 [tool.hatch.version]
 path = "akp02d/__init__.py"

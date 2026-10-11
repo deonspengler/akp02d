@@ -18,6 +18,44 @@ widget, and nothing else beyond Pillow and hidapi.
     python -m akp02d --check       # validate config and theme, no device
     python -m akp02d --stats -v    # run
 
+The running daemon watches its theme: save `theme.toml` (or replace the
+wallpaper) and the panel switches to the new version within a second.
+A save that does not load -- a typo, an overlap, a misaligned box -- is
+logged and the panel keeps what it had. `--no-watch` turns this off.
+
+## Theme editor
+
+    pip install 'akp02d[editor]'   # or your distribution's pyside6
+    akp02d-edit                    # the configured theme
+    akp02d-edit mytheme            # a theme by name, or a directory
+
+A Qt editor with a live preview that needs no panel. The preview is not
+an imitation: it runs akp02d's own widgets, so fonts, gradients and
+text placement are the pixels the daemon will send.
+
+* Drag widgets to move them and drag handles to resize. Boxes snap to
+  colour-safe offsets, and a drop onto another widget is refused (hold
+  Alt to place it anyway, e.g. while swapping two).
+* The settings panel is built from each plugin's declared options, so
+  every option is there with its default shown, and options that do
+  nothing in the current setup (`inner` on a bar spectrum) are hidden.
+* **Data**: *Live* reads this machine; *Simulated* makes up plausible
+  moving readings so graphs scroll and gauges move; *Frozen* holds
+  values you set, to check a nearly full gauge or take a screenshot.
+  Spectrums get simulated music, a sweep or silence, or real `cava`.
+* **Preview**: *As sent* shows the frame after the JPEG encode the
+  panel receives, at the quality and subsampling in `akp02d.toml`.
+* Settings that only fail on this machine -- a locale not generated
+  here, an interface named for another computer -- are previewed
+  without that setting and flagged, not treated as errors.
+* Saving edits `theme.toml` in place: only changed lines change, and
+  comments and the order of blocks are kept. With the daemon running,
+  saving is all it takes to see the result on the panel. Without it,
+  *Show on panel* sends the current frame once.
+
+The bundled default theme is read-only; saving it asks for a new name
+under `~/.config/akp02d/themes/`.
+
 ## Themes
 
 A theme is a directory with a `theme.toml`. The plugin name is the
@@ -33,7 +71,10 @@ wallpaper = "panel.jpg"         # optional image, drawn over it
 font = "DejaVuSans-Bold.ttf"    # theme-relative file, or a system family
 
 [[widget.label]]
-x = 80; y = 90; width = 302; height = 46
+x = 80
+y = 90
+width = 302
+height = 46
 fps = 1
 source = "time"                 # time | cpu | memory | disk | network
 format = "{value:%H:%M:%S}"
@@ -41,7 +82,10 @@ size = 56
 color = "#11e3f5"
 
 [[widget.gauge]]
-x = 56; y = 190; width = 160; height = 160
+x = 56
+y = 190
+width = 160
+height = 160
 fps = 1
 source = "memory"
 label = "MEM"
@@ -49,7 +93,10 @@ format = "{used_gb:.0f}/{total_gb:.0f}G"
 gradient = ["#22dd66", "#ffd022", "#ff3b30"]
 
 [[widget.graph]]
-x = 72; y = 400; width = 318; height = 160
+x = 72
+y = 400
+width = 318
+height = 160
 fps = 5
 source = "network"              # a pair: upload above, download below
 scale = "log"                   # rates span orders of magnitude
@@ -59,7 +106,10 @@ fill = "#18243c"
 fill_alpha = 0.45
 
 [[widget.spectrum]]
-x = 72; y = 772; width = 318; height = 318
+x = 72
+y = 772
+width = 318
+height = 318
 fps = 30
 type = "radial"                 # bars | mirrored | segmented | radial
 bars = 48
@@ -139,24 +189,38 @@ cross-checks every push against the box it claims.
 ## Writing a plugin
 
 One module in `akp02d/plugins/`, a class decorated with `@register`,
-and one import line in `plugins/__init__.py`. Most of what this panel
-shows is a string that changes sometimes, and `Label` already handles
-the font, colour, centring and change test:
+and one import line in `plugins/__init__.py`. A plugin declares its
+options as a `Schema` and reads them through it, which keeps the type
+and range checks in one place and is what the editor builds its form
+from -- a plugin that reads keys directly still runs, but the editor
+cannot show them:
 
 ```python
+from ..schema import Schema, boolean, color, font, integer
+
 @register("hostname")
-class HostnameWidget(Label):
+class HostnameWidget(Widget):
     default_fps = 1 / 60
+    summary = "This machine's name"
+    schema = Schema(
+        boolean("short", True, doc="Drop the domain"),
+        color("color", "#ffffff", group="Text"),
+        font(group="Text"),
+        integer("size", 24, 1, 512, group="Text"),
+    )
 
     def __init__(self, spec, theme):
         super().__init__(spec, theme)
-        self._short = spec.options.boolean("short", True)
+        o = self.schema.read(spec.options, spec)
         spec.options.reject_unknown()
-
-    def text(self, now: float) -> str:
-        name = socket.gethostname()
-        return name.split(".")[0] if self._short else name
+        ...
 ```
+
+`when=` hides an option the others make irrelevant, and `Auto(...)` is
+a default computed from other options or the widget's size, with a
+phrase the editor shows in place of a number; `schema.py` has the
+details. A source with settings of its own declares a schema the same
+way, and the editor shows its options beside the widget's.
 
 Anything that is not a line of text subclasses `Widget` and implements
 `render()`, returning `True` only when the pixels really changed --
@@ -165,6 +229,7 @@ the USB transfer both hang off that boolean.
 
 ## Not yet
 
-No hot reload. Stats are logged, not exported. Encode runs on the loop
-thread. Sources are read per widget rather than shared, which suits
-cheap local reads and will not suit an API call.
+Stats are logged, not exported. Encode runs on the loop thread. Sources
+are read per widget rather than shared, which suits cheap local reads
+and will not suit an API call. The config file is read once; only the
+theme reloads.
