@@ -39,6 +39,14 @@ Shape of a frame, and why:
 
   So there is nothing to ration and no queue: one push per frame is not
   a compromise, it is the cheapest thing available.
+
+* The theme is watched. Once a second the loop compares theme.toml's
+  and the wallpaper's file state with what it loaded; if either moved,
+  it loads the theme again, and only a theme that loads and validates
+  completely replaces the running one -- with a fresh full-screen draw,
+  the one other time that happens. A theme saved half-finished is
+  logged and the panel keeps what it had. One stat() a second is the
+  whole cost, so it is on unless --no-watch says otherwise.
 """
 
 from __future__ import annotations
@@ -52,10 +60,14 @@ from PIL import Image
 
 from akp02 import AKP02, Orientation
 
-from . import layout, plugins
+from . import layout, plugins, theme as theme_module
 from .config import Config
 from .plugins.base import Widget
+from .plugins.label import reset_locale
+from .table import SettingsError
 from .theme import Theme
+
+WATCH_INTERVAL_SEC = 1.0
 
 log = logging.getLogger(__name__)
 
@@ -111,6 +123,7 @@ class App:
         *,
         strict: bool = False,
         stats_interval: float = 0.0,
+        watch: bool = True,
     ) -> None:
         self.config = config
         self.theme = theme
@@ -121,6 +134,8 @@ class App:
         self.widgets: tuple[Widget, ...] = ()
         self.screen: Image.Image | None = None
         self._stop = False
+        self.watch = watch
+        self._stamp = _stamp(theme)
 
     # -- setup --
 
@@ -144,13 +159,22 @@ class App:
         self.panel.set_brightness(device.brightness)
         self.panel.screen_on()
 
+        self.widgets, self.screen = self._build(self.theme)
+        self._paint()
+
+    def _build(self, theme: Theme) -> tuple[tuple[Widget, ...], Image.Image]:
+        """Validate a theme and construct its widgets and composite.
+
+        Everything that can fail because of a bad theme fails here,
+        before anything on the panel changes.
+        """
         period = 1.0 / self.config.fps
-        specs = self.theme.widgets
+        specs = theme.widgets
         layout.validate(
             [(spec.id, spec.rect) for spec in specs],
-            self.panel.size,
-            self.theme.orientation,
-            device.inverted,
+            layout.screen_size(theme.orientation),
+            theme.orientation,
+            self.config.device.inverted,
         )
         # Built one at a time and closed on failure. A widget may own a
         # child process, and a Popen is not reaped by garbage collection
@@ -159,7 +183,7 @@ class App:
         built: list[Widget] = []
         try:
             for spec in specs:
-                built.append(plugins.create(spec, self.theme))
+                built.append(plugins.create(spec, theme))
         except Exception:
             for widget in built:
                 try:
@@ -167,8 +191,8 @@ class App:
                 except Exception:
                     log.exception("widget %r failed to close", widget.id)
             raise
-        self.widgets = tuple(built)
-        for widget in self.widgets:
+        widgets = tuple(built)
+        for widget in widgets:
             if widget.period < period:
                 log.warning(
                     "%s asks for %g fps but the loop runs at %g; it will "
@@ -180,13 +204,47 @@ class App:
         # What the panel is showing, kept in step as widgets draw into
         # it. A combined push is a crop of this, so the pixels between
         # the widgets it covers are the ones already on the glass.
-        self.screen = self.theme.background.copy()
-        for widget in self.widgets:
-            self.screen.paste(widget.surface, widget.rect.at)
-        # The one and only full-screen draw.
+        screen = theme.background.copy()
+        for widget in widgets:
+            screen.paste(widget.surface, widget.rect.at)
+        return widgets, screen
+
+    def _paint(self) -> None:
+        """The full-screen draw: at startup, and after a reload."""
+        assert self.screen is not None
         started = time.perf_counter()
         self.panel.show(self.screen)
         log.debug("background painted in %.1f ms", (time.perf_counter() - started) * 1e3)
+
+    # -- reload --
+
+    def reload_if_changed(self) -> bool:
+        """Load the theme again if its files changed. True if swapped."""
+        stamp = _stamp(self.theme)
+        if stamp == self._stamp:
+            return False
+        # Remembered whether or not the load works, so a broken save is
+        # reported once rather than every second until it is fixed.
+        self._stamp = stamp
+        try:
+            theme = theme_module.load(self.theme.path)
+            # The locale check is per build: a label may change its own.
+            reset_locale()
+            widgets, screen = self._build(theme)
+        except (SettingsError, layout.LayoutError, OSError) as exc:
+            log.error("theme changed but did not load; keeping the current one: %s", exc)
+            return False
+        for widget in self.widgets:
+            try:
+                widget.close()
+            except Exception:
+                log.exception("widget %r failed to close", widget.id)
+        if theme.orientation is not self.theme.orientation:
+            self.panel.orientation(theme.orientation)
+        self.theme, self.widgets, self.screen = theme, widgets, screen
+        self._paint()
+        log.info("theme %r reloaded (%d widget(s))", theme.name, len(widgets))
+        return True
 
     # -- loop --
 
@@ -208,16 +266,24 @@ class App:
             widget.due = start
         frame = 0
         next_stats = start + self.stats_interval if self.stats_interval else None
+        next_watch = start + WATCH_INTERVAL_SEC if self.watch else None
         screen = self.screen
         assert screen is not None
-        orientation = self.theme.orientation
-        inverted = self.config.device.inverted
 
         while not self._stop:
             frame += 1
             deadline = start + frame * period
             now = monotonic()
             box: tuple[int, int, int, int] | None = None
+
+            if next_watch is not None and now >= next_watch:
+                next_watch = now + WATCH_INTERVAL_SEC
+                if self.reload_if_changed():
+                    widgets, screen = self.widgets, self.screen
+                    assert screen is not None
+                    now = monotonic()
+                    for widget in widgets:
+                        widget.due = now
 
             for widget in widgets:
                 if now < widget.due:
@@ -296,3 +362,24 @@ class App:
                 self.panel.clear()
             except Exception:
                 log.debug("could not clear the panel on exit", exc_info=True)
+
+
+def _stamp(theme: Theme) -> tuple:
+    """The file state a reload compares: theme.toml and the wallpaper.
+
+    The wallpaper is found from the [theme] table as loaded, so a theme
+    that switches to a new file is caught by theme.toml changing, and a
+    wallpaper edited in place by its own stamp.
+    """
+    out = []
+    files = [theme.path / "theme.toml"]
+    if theme.wallpaper:
+        files.append(theme.path / theme.wallpaper)
+    for file in files:
+        try:
+            info = file.stat()
+        except OSError:
+            out.append(None)
+        else:
+            out.append((info.st_mtime_ns, info.st_size))
+    return tuple(out)

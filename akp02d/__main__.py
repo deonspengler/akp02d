@@ -37,6 +37,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="cross-check every region push and turn library warnings into errors",
     )
     parser.add_argument(
+        "--no-watch", action="store_true",
+        help="do not reload the theme when its files change",
+    )
+    parser.add_argument(
         "--check", action="store_true",
         help="load and validate the config and theme, then exit; no device needed",
     )
@@ -108,7 +112,8 @@ def main(argv: list[str] | None = None) -> int:
         log.error("%s", exc)
         return 3
 
-    app = App(cfg, loaded, panel, strict=args.strict, stats_interval=args.stats)
+    app = App(cfg, loaded, panel, strict=args.strict, stats_interval=args.stats,
+              watch=not args.no_watch)
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: app.stop())
 
