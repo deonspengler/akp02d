@@ -705,6 +705,12 @@ class EditorWindow(QMainWindow):
             event.ignore()
             return
         self.timer.stop()
+        self._inspector_timer.stop()
+        # Qt deletes the undo stack with the window, and clearing it on
+        # the way out announces a change of "clean" state -- to handlers
+        # that would ask the half-deleted stack about itself. Nothing is
+        # listening for anything any more, so say nothing.
+        self.undo.blockSignals(True)
         self.engine.close()
         event.accept()
 
