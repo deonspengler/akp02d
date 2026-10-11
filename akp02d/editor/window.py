@@ -22,7 +22,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QSizePolicy, QSplitter, QToolBar, QToolButton,
+    QMessageBox, QPushButton, QSizePolicy, QSplitter, QToolBar,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -167,24 +167,6 @@ class EditorWindow(QMainWindow):
             lambda text: self.act_undo.setToolTip(f"Undo {text}" if text else "Undo"))
         self.undo.redoTextChanged.connect(
             lambda text: self.act_redo.setToolTip(f"Redo {text}" if text else "Redo"))
-        bar.addSeparator()
-
-        def labelled(text: str, widget: QWidget) -> None:
-            holder = QWidget()
-            row = QHBoxLayout(holder)
-            row.setContentsMargins(6, 0, 6, 0)
-            row.setSpacing(8)
-            caption = QLabel(text)
-            caption.setStyleSheet(f"color: {style.MUTED}; font-size: 12px;")
-            row.addWidget(caption)
-            row.addWidget(widget)
-            bar.addWidget(holder)
-
-        self.orientation_seg = Segmented((("portrait", "Portrait"), ("landscape", "Landscape")))
-        self.orientation_seg.changed.connect(
-            lambda v: self.edit_theme("orientation", v, "Change orientation"))
-        labelled("Panel", self.orientation_seg)
-
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         bar.addWidget(spacer)
@@ -205,22 +187,9 @@ class EditorWindow(QMainWindow):
         column = QVBoxLayout(left)
         column.setContentsMargins(0, 12, 0, 0)
         column.setSpacing(0)
-        heading = QLabel("THEME")
-        heading.setObjectName("heading")
-        heading.setContentsMargins(14, 0, 14, 0)
-        column.addWidget(heading)
-        self.theme_name = QLabel()
-        self.theme_name.setObjectName("title")
-        self.theme_name.setContentsMargins(14, 4, 14, 0)
-        column.addWidget(self.theme_name)
-        self.theme_path = QLabel()
-        self.theme_path.setObjectName("path")
-        self.theme_path.setContentsMargins(14, 2, 14, 10)
-        self.theme_path.setWordWrap(True)
-        column.addWidget(self.theme_path)
         heading = QLabel("LAYERS")
         heading.setObjectName("heading")
-        heading.setContentsMargins(14, 6, 14, 6)
+        heading.setContentsMargins(14, 0, 14, 6)
         column.addWidget(heading)
         self.layers = QTreeWidget()
         self.layers.setHeaderHidden(True)
@@ -271,12 +240,15 @@ class EditorWindow(QMainWindow):
         self.zoom_label.setObjectName("mono")
         strip_row.addWidget(QLabel("Canvas"))
         strip_row.addWidget(self.zoom_label)
-        for text, slot in (("Fit", self.canvas.fit), ("1:1", lambda: self.canvas.set_zoom(1.0))):
-            button = QToolButton()
-            button.setText(text)
-            button.setObjectName("flat")
-            button.clicked.connect(slot)
-            strip_row.addWidget(button)
+        # One or the other: fitted to the view, or actual pixels. Neither
+        # is lit after a Ctrl+wheel zoom; clicking one goes back to it.
+        self.zoom_seg = Segmented((("fit", "Fit"), ("1:1", "1:1")))
+        self.zoom_seg.setToolTip("Fit the whole panel in view, or show it pixel for pixel")
+        self.zoom_seg.set_value("fit")
+        self.zoom_seg.changed.connect(
+            lambda mode: self.canvas.fit() if mode == "fit" else self.canvas.set_zoom(1.0))
+        strip_row.addSpacing(8)
+        strip_row.addWidget(self.zoom_seg)
         strip_row.addStretch(1)
         self.boxes_box = QCheckBox("Outlines")
         self.boxes_box.setChecked(True)
@@ -291,8 +263,7 @@ class EditorWindow(QMainWindow):
         self.canvas.delete_requested.connect(self.delete_widget)
         self.canvas.duplicate_requested.connect(self.duplicate_widget)
         self.canvas.status.connect(lambda text: self.statusBar().showMessage(text, 4000))
-        self.canvas.view_changed.connect(
-            lambda: self.zoom_label.setText(f"{round(self.canvas.zoom * 100)}%"))
+        self.canvas.view_changed.connect(self._zoom_changed)
 
         # Right: settings.
         self.inspector = Inspector()
@@ -368,8 +339,6 @@ class EditorWindow(QMainWindow):
             self.selection = None
         orientation = self.engine.orientation
         self.canvas.set_rules(orientation, self.config.device.inverted)
-        self.orientation_seg.set_value(
-            "portrait" if orientation is Orientation.PORTRAIT else "landscape")
         self._update_boxes()
         self._update_layers()
         self._update_inspector()
@@ -385,8 +354,6 @@ class EditorWindow(QMainWindow):
         name = doc.directory.name if doc.directory else "untitled"
         dirty = not self.undo.isClean()
         self.setWindowTitle(f"{name}{' •' if dirty else ''} — akp02d Theme Editor")
-        self.theme_name.setText(name)
-        self.theme_path.setText(str(doc.path) if doc.path else "not saved yet")
         self.status_dirty.setText(
             f"<span style='color:{style.WARN}'>● Unsaved changes</span>" if dirty else "Saved")
 
@@ -606,6 +573,12 @@ class EditorWindow(QMainWindow):
         if new is not None:
             self._set_selection(new)
             self.canvas.reveal(self._id_of(new))
+
+    def _zoom_changed(self) -> None:
+        zoom = self.canvas.zoom
+        self.zoom_label.setText(f"{round(zoom * 100)}%")
+        self.zoom_seg.set_value("fit" if self.canvas.fitted
+                                else "1:1" if abs(zoom - 1.0) < 1e-9 else "")
 
     def _boxes_toggled(self, on: bool) -> None:
         self.canvas.show_boxes = on

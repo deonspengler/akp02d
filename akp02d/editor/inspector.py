@@ -95,14 +95,6 @@ class Inspector(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        self.header = QWidget(self)
-        self.header_layout = QHBoxLayout(self.header)
-        self.header_layout.setContentsMargins(16, 14, 16, 12)
-        outer.addWidget(self.header)
-        line = QFrame(self)
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("color: #2b303a")
-        outer.addWidget(line)
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -136,18 +128,9 @@ class Inspector(QWidget):
                 break
             focused = focused.parentWidget()
         self._scroll_value = self.scroll.verticalScrollBar().value()
-        while self.header_layout.count():
-            item = self.header_layout.takeAt(0)
-            old = item.widget()
-            if old is not None:
-                # Hidden and detached now, not just when the event loop
-                # gets round to deleting it, so it never shows through.
-                old.hide()
-                old.setParent(None)
-                old.deleteLater()
         body = QWidget()
         column = QVBoxLayout(body)
-        column.setContentsMargins(16, 4, 16, 16)
+        column.setContentsMargins(16, 12, 16, 16)
         column.setSpacing(10)
         self._samples = []
         return body, column
@@ -169,28 +152,6 @@ class Inspector(QWidget):
             target = body.findChild(QWidget, key)
             if target is not None:
                 QTimer.singleShot(0, target.setFocus)
-
-    def _header(self, icon: str, title: str, subtitle: str, chip: str | None) -> None:
-        mark = QLabel(self.header)
-        mark.setPixmap(style.plugin_icon(icon, style.TEXT, 20).pixmap(20, 20))
-        self.header_layout.addWidget(mark)
-        text = QVBoxLayout()
-        text.setSpacing(0)
-        name = QLabel(title)
-        name.setObjectName("title")
-        text.addWidget(name)
-        sub = QLabel(subtitle)
-        sub.setObjectName("hint")
-        sub.setWordWrap(True)
-        text.addWidget(sub)
-        holder = QWidget(self.header)
-        holder.setLayout(text)
-        self.header_layout.addWidget(holder, 1)
-        if chip:
-            badge = QLabel(chip)
-            badge.setStyleSheet("background: #24425a; color: #bfe3f6; border-radius: 9px;"
-                                " padding: 2px 8px; font-size: 11px;")
-            self.header_layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
 
     def _problem_boxes(self, column: QVBoxLayout, problems: list[Problem],
                        clickable: bool = False) -> None:
@@ -234,8 +195,6 @@ class Inspector(QWidget):
     def show_summary(self, document: ThemeDocument, problems: list[Problem],
                      count: int) -> None:
         body, column = self._reset()
-        name = document.directory.name if document.directory else "untitled"
-        self._header("theme", name, str(document.path or "not saved yet"), None)
         hint = QLabel("Select a widget on the canvas or in the layers list to edit it. "
                       "Drag to move, drag a handle to resize; arrow keys nudge, "
                       "Delete removes. Ctrl+wheel zooms.")
@@ -255,8 +214,6 @@ class Inspector(QWidget):
     def show_theme(self, document: ThemeDocument, problems: list[Problem],
                    count: int) -> None:
         body, column = self._reset()
-        self._header("theme", "Theme settings", str(document.path or "not saved yet"),
-                     "[theme]")
         self._problem_boxes(column, [p for p in problems if p.widget is None])
         theme = document.theme
         form = self._group(column, "Panel")
@@ -338,12 +295,6 @@ class Inspector(QWidget):
         entry = document.entry(ref)
         widget_id = document.widget_id(ref)
         cls = lookup(ref.plugin)
-        summary = cls.summary if cls is not None and cls.summary else ""
-        self._header(ref.plugin, widget_id,
-                     f"[[widget.{ref.plugin}]] · entry {ref.index} of "
-                     f"{len(document.data.get('widget', {}).get(ref.plugin, []))}"
-                     + (f"\n{summary}" if summary else ""),
-                     ref.plugin)
         if cls is None:
             problems = [Problem(ERROR, f"no plugin called {ref.plugin!r} is installed",
                                 widget_id)] + problems

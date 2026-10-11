@@ -80,6 +80,9 @@ class Canvas(QGraphicsView):
         self.inverted = False
         self.screen = layout.screen_size(Orientation.PORTRAIT)
         self._zoom = 1.0
+        # Fit is a mode, not a one-off: while on, the panel stays fitted
+        # as the window is resized. Any other zoom turns it off.
+        self.fitted = True
         self._drag: _Drag | None = None
         self._hover_handle: str | None = None
 
@@ -120,7 +123,8 @@ class Canvas(QGraphicsView):
     def zoom(self) -> float:
         return self._zoom
 
-    def set_zoom(self, factor: float) -> None:
+    def set_zoom(self, factor: float, *, fitting: bool = False) -> None:
+        self.fitted = fitting
         factor = max(0.1, min(8.0, factor))
         self._zoom = factor
         self.resetTransform()
@@ -140,11 +144,16 @@ class Canvas(QGraphicsView):
         if view.width() < 10 or view.height() < 10:
             return
         factor = min((view.width() - 40) / width, (view.height() - 40) / height)
-        self.set_zoom(max(0.1, factor))
+        self.set_zoom(max(0.1, factor), fitting=True)
         self.centerOn(width / 2, height / 2)
 
     def visible_scene_rect(self) -> QRectF:
         return self.mapToScene(self.viewport().rect()).boundingRect()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self.fitted:
+            self.fit()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
