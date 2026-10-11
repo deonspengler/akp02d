@@ -1,7 +1,10 @@
 """gauge: a scalar as a swept arc, with optional text in the middle.
 
     [[widget.gauge]]
-    x = 1280; y = 142; width = 160; height = 160
+    x = 1280
+    y = 142
+    width = 160
+    height = 160
     fps = 1
     source = "memory"
     label = "MEM"
@@ -28,6 +31,10 @@ from typing import TYPE_CHECKING
 from PIL import ImageDraw
 
 from .. import gradient, sources
+from ..schema import (
+    Schema, choice, color, colors, font, integer, number, source, string,
+    text_format,
+)
 from .base import PluginError, Widget, WidgetSpec, register
 
 if TYPE_CHECKING:
@@ -39,10 +46,31 @@ START, SPAN = 135.0, 270.0
 
 @register("gauge")
 class GaugeWidget(Widget):
-    """Options: source, gradient, color_by, track, thickness, label,
-    label_color, label_size, format, size, color, font, min, max."""
+    """A scalar as a swept arc, with optional text in the middle."""
 
     default_fps = 1.0
+    summary = "A reading as a swept arc, with a label and value inside"
+    schema = Schema(
+        source(accepts=(sources.SCALAR,), required=True),
+        choice("color_by", ("position", "level"), "level", group="Arc",
+               doc="level: one colour picked by the value; position: the "
+                   "ramp runs round the arc"),
+        colors("gradient", ("#22dd66", "#ffd022", "#ff3b30"), group="Arc"),
+        color("track", "#0a3c46", group="Arc",
+              doc="The unfilled part of the arc"),
+        integer("thickness", 12, 1, 128, group="Arc"),
+        number("min", 0.0, group="Data", doc="Value drawn as empty"),
+        number("max", 1.0, group="Data", doc="Value drawn as full"),
+        string("label", None, group="Text", doc="Caption above the middle"),
+        text_format("format", None, group="Data",
+                    doc="Value text below the middle, filled from the "
+                        "source's fields"),
+        color("label_color", "#c0c4d0", group="Text"),
+        color("color", "#ffffff", group="Text", doc="Colour of the value text"),
+        font(group="Text"),
+        integer("label_size", 20, 1, 512, group="Text"),
+        integer("size", 14, 1, 512, group="Text", doc="Size of the value text"),
+    )
 
     __slots__ = ("_box", "_by_level", "_draw", "_fill", "_font", "_format",
                  "_label", "_label_fill", "_label_font", "_label_xy", "_last",
@@ -52,31 +80,23 @@ class GaugeWidget(Widget):
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
         super().__init__(spec, theme)
         options = spec.options
-        self._source = sources.resolve(options, spec.id, (sources.SCALAR,))
-        if self._source is None:
-            raise sources.SourceError(f"widget {spec.id!r}: gauge needs a source")
-        by = options.string("color_by", "level")
-        if by not in ("position", "level"):
-            raise options.fail("color_by", "position or level", by)
-        self._by_level = by == "level"
-        self._lut = gradient.lut(
-            options.colors("gradient", ("#22dd66", "#ffd022", "#ff3b30"))
-        )
-        self._track = options.color("track", "#0a3c46")
-        self._thickness = options.integer("thickness", 12, 1, 128)
-        low = options.number("min", 0.0)
-        high = options.number("max", 1.0)
+        o = self.schema.read(options, spec)
+        self._source = o.source
+        self._by_level = o.color_by == "level"
+        self._lut = gradient.lut(o.gradient)
+        self._track = o.track
+        self._thickness = o.thickness
+        low, high = o.min, o.max
         if high <= low:
             raise options.fail("max", f"greater than min ({low})", high)
         self._range = (low, high - low)
 
-        self._label = options.string("label", None)
-        self._format = options.string("format", None)
-        self._label_fill = options.color("label_color", "#c0c4d0")
-        self._fill = options.color("color", "#ffffff")
-        font = options.string("font", None)
-        self._label_font = theme.font(font, options.integer("label_size", 20, 1, 512))
-        self._font = theme.font(font, options.integer("size", 14, 1, 512))
+        self._label = o.label
+        self._format = o.format
+        self._label_fill = o.label_color
+        self._fill = o.color
+        self._label_font = theme.font(o.font, o.label_size)
+        self._font = theme.font(o.font, o.size)
         options.reject_unknown()
 
         width, height = spec.rect.size

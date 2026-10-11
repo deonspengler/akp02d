@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING
 from PIL import Image
 
 from ..layout import Rect
-from ..table import SettingsError, Table, parse_color
+from ..schema import Auto, Schema, color, number
+from ..table import SettingsError, Table
 
 if TYPE_CHECKING:  # theme imports this module, so only for types
     from ..theme import Theme
@@ -50,11 +51,29 @@ class WidgetSpec:
     options: Table
 
 
+# Keys every widget accepts, read by Widget itself. The geometry keys
+# (id, x, y, width, height, fps) are the theme's, not a schema's.
+BASE = Schema(
+    color("background", None, group="Background",
+          doc="A colour laid over the wallpaper under this widget"),
+    number("alpha", Auto(lambda v, spec: 1.0 if v.background else 0.0,
+                         "1 with a background colour, else 0"),
+           0.0, 1.0, group="Background",
+           doc="Opacity of the background colour; below 1 it dims what is "
+               "behind, which also makes the widget cheaper to send"),
+)
+
+
 class Widget:
     """Base class for plugins. Subclasses implement render()."""
 
     # Update rate when the theme does not give one.
     default_fps = 1.0
+    # The plugin's own options. Subclasses declare theirs and read them
+    # with `self.schema.read(spec.options, spec)`.
+    schema = Schema()
+    # One line on what the plugin draws, for editors.
+    summary = ""
 
     __slots__ = ("backdrop", "due", "fps", "id", "jpeg", "period", "rect", "surface")
 
@@ -80,14 +99,10 @@ class Widget:
         # trips on one that happens not to be used. Naming a background
         # and no alpha means an opaque one -- the alternative is a
         # colour that silently does nothing.
-        colour = spec.options.string("background", None)
-        alpha = spec.options.number("alpha", 1.0 if colour else 0.0, 0.0, 1.0)
-        if alpha:
-            flat = Image.new(
-                "RGB", self.backdrop.size, parse_color(colour or "#000000",
-                                                       spec.options.path("background"))
-            )
-            self.backdrop = Image.blend(self.backdrop, flat, alpha)
+        base = BASE.read(spec.options, spec)
+        if base.alpha:
+            flat = Image.new("RGB", self.backdrop.size, base.background or (0, 0, 0))
+            self.backdrop = Image.blend(self.backdrop, flat, base.alpha)
         # The widget's own back buffer, allocated once and drawn over in
         # place. Its size is the region's, so it is also exactly what
         # gets encoded and pushed.
@@ -117,6 +132,12 @@ class Widget:
 # construction can still die a moment later.
 _DRY_RUN = False
 
+# Preview is dry run for a tool that draws the theme without the panel --
+# an editor. It additionally lets a plugin skip requiring an outside
+# program it would only read from, since the tool supplies stand-in data;
+# the tool is then responsible for saying the real run would refuse.
+_PREVIEW = False
+
 
 def set_dry_run(value: bool) -> None:
     global _DRY_RUN
@@ -124,7 +145,16 @@ def set_dry_run(value: bool) -> None:
 
 
 def dry_run() -> bool:
-    return _DRY_RUN
+    return _DRY_RUN or _PREVIEW
+
+
+def set_preview(value: bool) -> None:
+    global _PREVIEW
+    _PREVIEW = value
+
+
+def preview() -> bool:
+    return _PREVIEW
 
 
 _REGISTRY: dict[str, type[Widget]] = {}
@@ -154,3 +184,8 @@ def create(spec: WidgetSpec, theme: Theme) -> Widget:
 
 def available() -> tuple[str, ...]:
     return tuple(sorted(_REGISTRY))
+
+
+def lookup(name: str) -> type[Widget] | None:
+    """The class registered as `name`, for tools that describe plugins."""
+    return _REGISTRY.get(name)

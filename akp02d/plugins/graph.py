@@ -1,7 +1,10 @@
 """graph: a source's recent history, as a filled trace.
 
     [[widget.graph]]
-    x = 32; y = 300; width = 400; height = 110
+    x = 32
+    y = 300
+    width = 400
+    height = 110
     fps = 1
     source = "cpu"
     gradient = ["#11e3f5", "#fd44dd"]
@@ -47,8 +50,13 @@ from typing import TYPE_CHECKING
 from PIL import Image, ImageDraw
 
 from .. import gradient, sources
-from ..table import parse_color
+from ..schema import Auto, Schema, choice, color, colors, integer, number, source
 from .base import Widget, WidgetSpec, register
+
+
+def _pair(values) -> bool:
+    found = values.get("source")
+    return getattr(found, "kind", None) == sources.PAIR
 
 if TYPE_CHECKING:
     from ..theme import Theme
@@ -56,10 +64,42 @@ if TYPE_CHECKING:
 
 @register("graph")
 class GraphWidget(Widget):
-    """Options: source, gradient, gradient_down, scale, origin, fill,
-    fill_alpha, line_width, points, min, max."""
+    """A source's recent history, as a filled trace."""
 
     default_fps = 1.0
+    summary = "Recent history as a scrolling trace; a pair (network) mirrors"
+    schema = Schema(
+        source(accepts=(sources.SCALAR, sources.PAIR), required=True),
+        colors("gradient", ("#11e3f5", "#66f0ff"), group="Line",
+               doc="Line colour by height; for a pair, the upper (up) trace"),
+        colors("gradient_down", ("#fd44dd", "#ff99ee"), group="Line",
+               doc="The lower (down) trace of a pair", when=_pair),
+        color("fill", None, group="Fill",
+              doc="Colour under the line; leave empty for none"),
+        number("fill_alpha", 1.0, 0.0, 1.0, group="Fill",
+               when=lambda v: v.get("fill") is not None,
+               doc="Opacity of the fill, so the wallpaper shows through"),
+        integer("line_width", 2, 1, 16, group="Line"),
+        integer("points", Auto(lambda v, spec: spec.rect.width,
+                               "one per pixel of width"),
+                2, 4096, group="Data",
+                doc="How many readings fit across; with fps this sets the "
+                    "time span"),
+        color("origin", None, group="Line",
+              doc="The baseline (or centre line for a pair); empty for none"),
+        choice("scale", ("linear", "log"),
+               Auto(lambda v, spec: "log" if _pair(v) else "linear",
+                    "log for a pair, else linear"),
+               group="Data"),
+        number("min", Auto(lambda v, spec: 1024.0 if v.scale == "log" else 0.0,
+                           "1024 on a log scale, else 0"),
+               group="Data",
+               doc="Bottom of the range; on a log scale, what counts as "
+                   "nothing"),
+        number("max", Auto(lambda v, spec: 125_000_000.0 if _pair(v) else 1.0,
+                           "a gigabit/s for a pair, else 1"),
+               group="Data", doc="Top of the range"),
+    )
 
     __slots__ = ("_fill", "_fill_alpha", "_gradient", "_history", "_inset",
                  "_last", "_line", "_line_draw", "_line_width", "_log",
@@ -69,46 +109,36 @@ class GraphWidget(Widget):
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
         super().__init__(spec, theme)
         options = spec.options
-        self._source = sources.resolve(
-            options, spec.id, (sources.SCALAR, sources.PAIR)
-        )
-        if self._source is None:
-            raise sources.SourceError(f"widget {spec.id!r}: graph needs a source")
+        o = self.schema.read(options, spec)
+        self._source = o.source
         self._mirrored = self._source.kind == sources.PAIR
-        stops = options.colors("gradient", ("#11e3f5", "#66f0ff"))
-        down_stops = options.colors("gradient_down", ("#fd44dd", "#ff99ee"))
-        fill = options.string("fill", None)
-        self._fill = options.color("fill", "#18243c") if fill else None
+        stops = o.gradient
+        down_stops = o.gradient_down
+        self._fill = o.fill
         # The fill is decoration over whatever is behind it, so it is the
         # part that wants to be see-through -- a solid block hides the
         # wallpaper the widget is sitting on. The line stays opaque: it
         # is the data.
-        self._fill_alpha = options.number("fill_alpha", 1.0, 0.0, 1.0)
-        self._line_width = options.integer("line_width", 2, 1, 16)
+        self._fill_alpha = o.fill_alpha
+        self._line_width = o.line_width
         width, height = spec.rect.size
-        points = options.integer("points", width, 2, 4096)
-        origin = options.string("origin", None)
+        points = o.points
+        origin = o.origin
         if origin is not None:
             # Into the backdrop, so it costs nothing per frame and is
             # still there when the trace is flat. A mirrored graph needs
             # it most: without a line the two directions have no visible
             # axis to grow from.
             row = height // 2 if self._mirrored else height - 1 - self._line_width
-            ImageDraw.Draw(self.backdrop).line(
-                (0, row, width - 1, row), fill=parse_color(origin, options.path("origin"))
-            )
+            ImageDraw.Draw(self.backdrop).line((0, row, width - 1, row), fill=origin)
             self.surface.paste(self.backdrop)
         # A source reporting outside 0..1 -- a rate, a temperature --
         # needs the range it is drawn against; that is a display
         # decision, so it belongs on the widget rather than the source.
-        scale = options.string("scale", "log" if self._mirrored else "linear")
-        if scale not in ("linear", "log"):
-            raise options.fail("scale", "linear or log", scale)
-        self._log = scale == "log"
+        self._log = o.scale == "log"
         # For a log scale `min` is the floor -- what counts as nothing --
         # rather than the bottom of a range, so it cannot be zero.
-        low = options.number("min", 1024.0 if self._log else 0.0)
-        high = options.number("max", 125_000_000.0 if self._mirrored else 1.0)
+        low, high = o.min, o.max
         if high <= low:
             raise options.fail("max", f"greater than min ({low})", high)
         if self._log and low <= 0:
@@ -146,12 +176,33 @@ class GraphWidget(Widget):
             baseline + sign * int(self._fraction(value) * span) for value in history
         )
 
-    def render(self, now: float) -> bool:
-        value, fields = self._source.read(now)
-        width, height = self.surface.size
+    def _append(self, value, fields) -> None:
         if self._mirrored:
             self._history.append(fields.get("up", 0.0))
             self._second.append(fields.get("down", 0.0))
+        else:
+            self._history.append(value if value is not None else 0.0)
+
+    def seed(self, now: float, period: float) -> None:
+        """Fill the history by reading the source at earlier moments.
+
+        For tools that can read any moment -- an editor previewing with
+        simulated data -- so a new graph shows a full trace at once
+        rather than one point a second. The daemon never calls it: a
+        real source only knows now, and delta sources would be wrong.
+        """
+        count = self._history.maxlen or 0
+        self._history.clear()
+        if self._second is not None:
+            self._second.clear()
+        for step in range(count - 1, 0, -1):
+            self._append(*self._source.read(now - step * period))
+
+    def render(self, now: float) -> bool:
+        value, fields = self._source.read(now)
+        width, height = self.surface.size
+        self._append(value, fields)
+        if self._mirrored:
             middle = height // 2
             span = middle - self._inset
             series = [
@@ -160,7 +211,6 @@ class GraphWidget(Widget):
             ]
             baseline = middle
         else:
-            self._history.append(value if value is not None else 0.0)
             span = height - 1 - self._inset * 2
             series = [
                 (self._rows(self._history, height - 1 - self._inset, span, -1),

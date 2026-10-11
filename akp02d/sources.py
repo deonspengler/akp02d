@@ -21,6 +21,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from .schema import Schema, string
 from .table import SettingsError, Table
 
 # What a source produces, and therefore which shapes can draw it.
@@ -40,9 +41,16 @@ class Source:
     """
 
     kind = SCALAR
+    # Options of the source's own, read from the widget's table. Declared
+    # so an editor can show them beside the widget's.
+    schema = Schema()
+    # The names a format string can use, for editors and error messages.
+    fields: tuple[str, ...] = ()
+    # One line on what it reads, for editors.
+    summary = ""
 
     def __init__(self, options: Table, widget: str) -> None:
-        pass
+        self.schema.read(options)
 
     def read(self, now: float) -> tuple[float | None, dict[str, Any]]:
         """Return (value in 0..1 or None, fields for formatting).
@@ -59,6 +67,8 @@ class TimeSource(Source):
     """The current local time. Formatted, not drawn."""
 
     kind = MOMENT
+    fields = ("value",)
+    summary = "The local time; format it with strftime codes, e.g. {value:%H:%M}"
 
     def read(self, now: float) -> tuple[None, dict[str, Any]]:
         return None, {"value": datetime.now()}
@@ -73,6 +83,8 @@ class CpuSource(Source):
     """
 
     kind = SCALAR
+    fields = ("value", "percent")
+    summary = "Busy fraction of all CPUs since the last read"
 
     def __init__(self, options: Table, widget: str) -> None:
         self._previous = _cpu_times()
@@ -96,6 +108,9 @@ class MemorySource(Source):
     """
 
     kind = SCALAR
+    fields = ("value", "percent", "used", "total", "available", "used_gb",
+              "total_gb")
+    summary = "Used fraction of physical memory"
 
     def read(self, now: float) -> tuple[float, dict[str, Any]]:
         info = _meminfo()
@@ -122,9 +137,17 @@ class DiskSource(Source):
     """
 
     kind = SCALAR
+    schema = Schema(
+        string("path", "/", group="Data",
+               doc="Any path on the filesystem to measure: a mount point or "
+                   "anything under it"),
+    )
+    fields = ("value", "percent", "used", "free", "total", "used_gb",
+              "free_gb", "total_gb")
+    summary = "Used fraction of a filesystem"
 
     def __init__(self, options: Table, widget: str) -> None:
-        self._path = options.string("path", "/")
+        self._path = self.schema.read(options).path
         try:
             os.statvfs(self._path)
         except OSError as exc:
@@ -159,9 +182,16 @@ class NetworkSource(Source):
     """
 
     kind = PAIR
+    schema = Schema(
+        string("interface", None, group="Data",
+               doc="One interface, e.g. eno1; leave empty to sum every "
+                   "interface except loopback"),
+    )
+    fields = ("up", "down", "up_kb", "down_kb", "up_mb", "down_mb")
+    summary = "Bytes per second sent (up) and received (down)"
 
     def __init__(self, options: Table, widget: str) -> None:
-        self._name = options.string("interface", None)
+        self._name = self.schema.read(options).interface
         self._previous = _net_bytes(self._name)
         self._when: float | None = None
         if self._name is not None and self._previous == (0, 0):
@@ -231,13 +261,19 @@ def _meminfo() -> dict[str, int]:
     return info
 
 
-_REGISTRY: dict[str, Callable[..., Source]] = {
+_REGISTRY: dict[str, type[Source]] = {
     "time": TimeSource,
     "cpu": CpuSource,
     "memory": MemorySource,
     "disk": DiskSource,
     "network": NetworkSource,
 }
+
+
+# A seam for tools, unset in the daemon. When set, every source create()
+# makes is passed through it, so an editor can stand a simulated or
+# frozen reading in front of the real one without the widget knowing.
+wrap: Callable[[Source, str], Source] | None = None
 
 
 def create(name: str, options: Table, widget: str) -> Source:
@@ -249,9 +285,10 @@ def create(name: str, options: Table, widget: str) -> Source:
             f"{', '.join(sorted(_REGISTRY))}"
         )
     try:
-        return factory(options, widget)
+        made = factory(options, widget)
     except OSError as exc:
         raise SourceError(f"widget {widget!r}: source {name!r} is unavailable: {exc}") from exc
+    return wrap(made, name) if wrap is not None else made
 
 
 def resolve(options: Table, widget: str, accepts: tuple[str, ...]) -> Source | None:
@@ -274,3 +311,12 @@ def resolve(options: Table, widget: str, accepts: tuple[str, ...]) -> Source | N
 
 def available() -> tuple[str, ...]:
     return tuple(sorted(_REGISTRY))
+
+
+def lookup(name: str) -> type[Source] | None:
+    """The class registered as `name`, without constructing it.
+
+    For tools that need to know what a source is -- its kind, fields and
+    options -- without reading /proc or checking a path exists.
+    """
+    return _REGISTRY.get(name)

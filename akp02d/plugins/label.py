@@ -1,7 +1,10 @@
 """label: one line of text, from a source or written out.
 
     [[widget.label]]
-    x = 40; y = 26; width = 400; height = 60
+    x = 40
+    y = 26
+    width = 400
+    height = 60
     source = "time"
     format = "{value:%H:%M:%S}"
     size = 44
@@ -36,6 +39,7 @@ from typing import TYPE_CHECKING
 from PIL import ImageDraw
 
 from .. import sources
+from ..schema import Schema, color, font, integer, source, string, text_format
 from .base import PluginError, Widget, WidgetSpec, register
 
 if TYPE_CHECKING:
@@ -48,26 +52,38 @@ _LOCALE: tuple[str, str] | None = None
 
 @register("label")
 class LabelWidget(Widget):
-    """Options: source, format, locale, size, color, font."""
+    """One line of text, from a source or written out."""
+
+    summary = "One line of text: a clock, a reading, or a fixed caption"
+    schema = Schema(
+        source(accepts=(sources.SCALAR, sources.TEXT, sources.MOMENT),
+               doc="Where the value comes from; leave empty for fixed text"),
+        text_format("format", "", group="Data",
+                    doc="Python format string filled from the source's "
+                        "fields; with no source it is drawn as written"),
+        string("locale", None, group="Text",
+               doc="LC_TIME locale for day and month names, e.g. "
+                   "en_US.UTF-8; process-wide, so every label must agree"),
+        color("color", "#ffffff", group="Text"),
+        font(group="Text", doc="Theme-relative font file or a system "
+                               "family; empty uses the theme's font"),
+        integer("size", 24, 1, 512, group="Text", doc="Font size in pixels"),
+    )
 
     __slots__ = ("_anchor_xy", "_draw", "_fill", "_font", "_format", "_last",
                  "_source")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
         super().__init__(spec, theme)
-        options = spec.options
-        self._source = sources.resolve(
-            options, spec.id, (sources.SCALAR, sources.TEXT, sources.MOMENT)
-        )
-        self._format = options.string("format", "")
-        _set_locale(options.string("locale", None), spec.id)
-        self._fill = options.color("color", "#ffffff")
+        o = self.schema.read(spec.options, spec)
+        self._source = o.source
+        self._format = o.format
+        _set_locale(o.locale, spec.id)
+        self._fill = o.color
         # Resolved once: building a font per frame would cost more than
         # everything else this widget does put together.
-        self._font = theme.font(
-            options.string("font", None), options.integer("size", 24, 1, 512)
-        )
-        options.reject_unknown()
+        self._font = theme.font(o.font, o.size)
+        spec.options.reject_unknown()
 
         width, height = spec.rect.size
         ascent, _ = self._font.getmetrics()
@@ -105,6 +121,17 @@ class LabelWidget(Widget):
             self._anchor_xy, text, font=self._font, fill=self._fill, anchor="ma"
         )
         return True
+
+
+def reset_locale() -> None:
+    """Forget which widget set the locale, for a tool rebuilding a theme.
+
+    The daemon builds a theme once, so the conflict check holds for its
+    whole life. An editor rebuilds labels as they change and must start
+    the check over, or a label could not change its own locale.
+    """
+    global _LOCALE
+    _LOCALE = None
 
 
 def _set_locale(name: str | None, widget: str) -> None:

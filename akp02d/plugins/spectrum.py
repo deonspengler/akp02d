@@ -1,7 +1,10 @@
 """spectrum: an audio visualiser, currently driven by the cava process.
 
     [[widget.spectrum]]
-    x = 40; y = 200; width = 600; height = 200
+    x = 40
+    y = 200
+    width = 600
+    height = 200
     fps = 30
     type = "bars"                                 # bars|mirrored|segmented|radial
     bars = 32
@@ -41,9 +44,12 @@ from typing import TYPE_CHECKING
 from PIL import Image, ImageDraw
 
 from .. import gradient
-from ..table import parse_color
+from ..schema import (
+    Auto, Schema, boolean, choice, color, colors, integer, number, sections,
+    string,
+)
 from . import cava
-from .base import PluginError, Widget, WidgetSpec, dry_run, register
+from .base import PluginError, Widget, WidgetSpec, dry_run, preview, register
 
 if TYPE_CHECKING:
     from ..theme import Theme
@@ -64,12 +70,60 @@ POSITION_MAP = {
 
 @register("spectrum")
 class SpectrumWidget(Widget):
-    """Options: type, color_by, bars, channels, mono_option, reverse,
-    smoothing, input, source, gap, gradient, origin, origin_width, inner,
-    segments, segment_gap, peaks, peak_hold, peak_gravity, peak_size,
-    peak_gap, and the `cava` escape hatch."""
+    """An audio visualiser, driven by cava."""
 
     default_fps = 30.0
+    summary = "Audio spectrum from cava: bars, mirrored, segmented or radial"
+    schema = Schema(
+        choice("type", TYPES, "bars", group="Shape"),
+        choice("color_by", ("position", "level"),
+               Auto(lambda v, spec: "level" if v.type == "radial" else "position",
+                    "level for radial, else position"),
+               group="Colour",
+               doc="position: the gradient is fixed in place; level: each "
+                   "bar takes one colour by how loud it is"),
+        integer("bars", 32, 1, 512, group="Shape",
+                doc="Number of bars; must be even in stereo"),
+        choice("channels", cava.CHANNELS, "stereo", group="Audio"),
+        string("mono_option", None, group="Audio",
+               when=lambda v: v.channels == "mono",
+               doc="cava's mono_option: average, left or right"),
+        boolean("reverse", False, group="Shape",
+                doc="Swap low and high frequencies"),
+        integer("smoothing", None, 0, 100, group="Audio",
+                doc="cava's noise_reduction: 0 twitchy, 100 sluggish; "
+                    "empty keeps cava's default"),
+        string("input", None, group="Audio",
+               doc="cava input method, e.g. pulse or pipewire; empty lets "
+                   "cava choose"),
+        string("source", None, group="Audio",
+               doc="What that input method captures, e.g. auto"),
+        integer("gap", 3, 0, 64, group="Shape", doc="Pixels between bars"),
+        number("inner", 0.35, 0.0, 0.95, group="Shape",
+               when=lambda v: v.type == "radial",
+               doc="Hub radius as a fraction of the ring"),
+        integer("segments", 12, 2, 128, group="Shape",
+                when=lambda v: v.type == "segmented"),
+        integer("segment_gap", 3, 0, 32, group="Shape",
+                when=lambda v: v.type == "segmented"),
+        boolean("peaks", False, group="Peaks",
+                doc="Caps that hold at each bar's peak, then fall"),
+        number("peak_hold", 0.35, 0.0, 10.0, group="Peaks",
+               when=lambda v: v.peaks, doc="Seconds a cap waits before falling"),
+        number("peak_gravity", 2.6, 0.01, 100.0, group="Peaks",
+               when=lambda v: v.peaks, doc="How fast a falling cap speeds up"),
+        integer("peak_size", 4, 1, 64, group="Peaks", when=lambda v: v.peaks),
+        integer("peak_gap", 4, 0, 64, group="Peaks", when=lambda v: v.peaks,
+                doc="Clear space needed under a cap before it is drawn"),
+        color("origin", None, group="Colour",
+              doc="Hub, centre line, or stubs the bars grow from; empty "
+                  "for none"),
+        integer("origin_width", 1, 1, 32, group="Colour",
+                when=lambda v: v.origin is not None),
+        colors("gradient", ("#00ff00", "#ffff00", "#ff0000"), group="Colour"),
+        sections("cava", group="Advanced",
+                 doc="Extra cava settings, passed through verbatim"),
+    )
 
     __slots__ = (
         "_bars", "_box", "_cap", "_clearance", "_fills", "_gap", "_gradient",
@@ -82,64 +136,52 @@ class SpectrumWidget(Widget):
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
         super().__init__(spec, theme)
         options = spec.options
-        kind = options.string("type", "bars")
-        if kind not in TYPES:
-            raise options.fail("type", f"one of {', '.join(TYPES)}", kind)
+        o = self.schema.read(options, spec)
+        kind = o.type
         # Radial reads better with a flat colour per spoke: a radial
         # position gradient shades every spoke the same way regardless of
         # how loud it is (see color_by).
-        by = options.string("color_by", "level" if kind == "radial" else "position")
-        if by not in ("position", "level"):
-            raise options.fail("color_by", "position or level", by)
-        self._bars = options.integer("bars", 32, 1, 512)
+        by = o.color_by
+        self._bars = o.bars
         # cava's own default is stereo, which mirrors the channels with the
         # low frequencies in the middle -- on a ring that gives a shape
         # symmetric about the vertical, which is usually what you want.
-        channels = options.string("channels", "stereo")
-        if channels not in cava.CHANNELS:
-            raise options.fail("channels", " or ".join(cava.CHANNELS), channels)
+        channels = o.channels
         if channels == "stereo" and self._bars % 2:
             raise PluginError(
                 f"widget {spec.id!r}: stereo splits the bars between two "
                 f"channels, so bars must be even; got {self._bars}"
             )
         named: dict[str, dict] = {"output": {"channels": channels}}
-        mono_option = options.string("mono_option", None)
-        if mono_option is not None:
-            named["output"]["mono_option"] = mono_option
-        if options.boolean("reverse", False):
+        if o.mono_option is not None:
+            named["output"]["mono_option"] = o.mono_option
+        if o.reverse:
             named["output"]["reverse"] = 1
-        smoothing = options.raw("smoothing")
-        if smoothing is not None:
-            named["smoothing"] = {
-                "noise_reduction": options.integer("smoothing", 77, 0, 100)
-            }
-        method = options.string("input", None)
-        source = options.string("source", None)
+        if o.smoothing is not None:
+            named["smoothing"] = {"noise_reduction": o.smoothing}
+        method, source = o.input, o.source
         if method or source:
             named["input"] = {
                 key: value
                 for key, value in (("method", method), ("source", source))
                 if value is not None
             }
-        self._gap = options.integer("gap", 3, 0, 64)
-        self._inner = options.number("inner", 0.35, 0.0, 0.95)
-        self._segments = options.integer("segments", 12, 2, 128)
-        self._segment_gap = options.integer("segment_gap", 3, 0, 32)
-        self._peaks: list[float] | None = (
-            [0.0] * self._bars if options.boolean("peaks", False) else None
-        )
-        self._hold = options.number("peak_hold", 0.35, 0.0, 10.0)
-        self._gravity = options.number("peak_gravity", 2.6, 0.01, 100.0)
-        self._cap = options.integer("peak_size", 4, 1, 64)
+        self._gap = o.gap
+        self._inner = o.inner
+        self._segments = o.segments
+        self._segment_gap = o.segment_gap
+        self._peaks: list[float] | None = [0.0] * self._bars if o.peaks else None
+        self._hold = o.peak_hold
+        self._gravity = o.peak_gravity
+        self._cap = o.peak_size
         # Minimum clear space between bar and cap before the cap is drawn
         # at all. A cap riding on top of its own bar is not information,
         # and a gap under a rising bar looks like a mistake.
-        self._clearance = options.integer("peak_gap", 4, 0, 64)
-        origin = options.string("origin", None)
-        origin_width = options.integer("origin_width", 1, 1, 32)
-        stops = options.colors("gradient", ("#00ff00", "#ffff00", "#ff0000"))
-        sections = cava.merge(named, options.sections("cava"), spec.id)
+        self._clearance = o.peak_gap
+        origin = o.origin
+        origin_width = o.origin_width
+        stops = o.gradient
+        sections = cava.merge(named, o.cava, spec.id)
         options.reject_unknown()
 
         width, height = spec.rect.size
@@ -164,9 +206,7 @@ class SpectrumWidget(Widget):
             self._mask_draw = ImageDraw.Draw(self._mask)
             self._surface_draw = None
         if origin is not None:
-            self._paint_origin(
-                parse_color(origin, options.path("origin")), origin_width, kind
-            )
+            self._paint_origin(origin, origin_width, kind)
         self._last: tuple | None = None
         self._held = [0.0] * self._bars      # monotonic time each cap may fall
         self._velocity = [0.0] * self._bars
@@ -176,7 +216,7 @@ class SpectrumWidget(Widget):
         text = cava.config(
             self._bars, max(1, round(spec.fps or self.default_fps)), sections
         )
-        if not cava.installed():
+        if not cava.installed() and not preview():
             raise PluginError(
                 f"widget {spec.id!r}: cava is not installed or not on PATH"
             )

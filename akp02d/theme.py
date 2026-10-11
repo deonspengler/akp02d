@@ -8,12 +8,15 @@ background, a default font, and the widgets.
     font = "DejaVuSans-Bold.ttf"
 
     [[widget.label]]
-    x = 40; y = 24; width = 600; height = 60
+    x = 40
+    y = 24
+    width = 600
+    height = 60
     format = "Hello, world"
     size = 44
 
 The plugin name is the array header, so a widget's own keys sit flat
-beside its geometry. x, y, width, height, interval, and id are reserved;
+beside its geometry. x, y, width, height, fps, and id are reserved;
 everything else is the plugin's.
 
 Colours are whatever Pillow's ImageColor accepts -- "#rrggbb", "#rgb",
@@ -31,6 +34,7 @@ from __future__ import annotations
 import logging
 import tomllib
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from akp02 import Orientation
@@ -59,6 +63,8 @@ class Theme:
     background: Image.Image
     font_default: str | None
     widgets: tuple[WidgetSpec, ...]
+    # The wallpaper file as named in the theme, for watching it.
+    wallpaper: str | None = None
     _fonts: dict[tuple[str | None, int], ImageFont.FreeTypeFont] = field(
         default_factory=dict
     )
@@ -123,8 +129,23 @@ def load(path: Path) -> Theme:
     """Parse a theme directory into a Theme."""
     file = path / "theme.toml"
     try:
-        top = Table(tomllib.loads(file.read_text(encoding="utf-8")))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+        text = file.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ThemeError(f"{file}: {exc}") from exc
+    return loads(text, path)
+
+
+def loads(text: str, path: Path) -> Theme:
+    """Parse theme.toml text belonging to the theme directory `path`.
+
+    `path` is where the wallpaper and fonts are looked up, so text that
+    has not been saved yet -- an editor's -- builds exactly the theme the
+    file will.
+    """
+    file = path / "theme.toml"
+    try:
+        top = Table(tomllib.loads(text))
+    except tomllib.TOMLDecodeError as exc:
         raise ThemeError(f"{file}: {exc}") from exc
     try:
         return _build(top, path)
@@ -134,28 +155,41 @@ def load(path: Path) -> Theme:
         raise ThemeError(f"{file}: {exc}") from exc
 
 
-def _build(top: Table, path: Path) -> Theme:
-    meta = top.table("theme")
-    orientation = meta.choice("orientation", "landscape", ORIENTATIONS)
-    screen = screen_size(orientation)
-    background = _background(
-        meta.string("background", "#000000"),
-        meta.string("wallpaper", None),
-        path,
-        screen,
-    )
-    font_default = meta.string("font", None)
-    meta.reject_unknown()
+@dataclass(frozen=True, slots=True)
+class Meta:
+    """The [theme] table, resolved: everything but the widgets."""
 
+    orientation: Orientation
+    background: Image.Image
+    font_default: str | None
+    wallpaper: str | None = None
+
+
+def meta(table: Table, path: Path) -> Meta:
+    """Read the [theme] table. Raises SettingsError on a bad value."""
+    orientation = table.choice("orientation", "landscape", ORIENTATIONS)
+    screen = screen_size(orientation)
+    wallpaper = table.string("wallpaper", None)
+    background = _background(
+        table.string("background", "#000000"), wallpaper, path, screen
+    )
+    font_default = table.string("font", None)
+    table.reject_unknown()
+    return Meta(orientation, background, font_default, wallpaper)
+
+
+def _build(top: Table, path: Path) -> Theme:
+    info = meta(top.table("theme"), path)
     widgets = _widgets(top.table("widget"))
     top.reject_unknown()
     return Theme(
         name=path.name,
         path=path,
-        orientation=orientation,
-        background=background,
-        font_default=font_default,
+        orientation=info.orientation,
+        background=info.background,
+        font_default=info.font_default,
         widgets=widgets,
+        wallpaper=info.wallpaper,
     )
 
 
@@ -181,10 +215,26 @@ def _background(
     if not file.is_file():
         raise ThemeError(f"theme.wallpaper: no file {wallpaper!r} in {path}")
     try:
-        with Image.open(file) as image:
-            source = image.convert("RGB")
+        stat = file.stat()
+        return _wallpaper(str(file), stat.st_mtime_ns, stat.st_size, screen)
     except OSError as exc:
         raise ThemeError(f"theme.wallpaper: cannot read {file}: {exc}") from exc
+
+
+@lru_cache(maxsize=4)
+def _wallpaper(
+    file: str, mtime_ns: int, size: int, screen: tuple[int, int]
+) -> Image.Image:
+    """A wallpaper decoded and fitted to the panel, cached by file state.
+
+    Decoding and resampling a panel-sized photo is the slowest thing a
+    load does. A reload that only moved a widget -- the daemon's, or an
+    editor's on every change -- should not pay it again, and a changed
+    file has a new mtime, so it is never served stale. Callers copy
+    before drawing on it: `backdrop` crops and the loop copies the whole.
+    """
+    with Image.open(file) as image:
+        source = image.convert("RGB")
     if source.size != screen:
         source = source.resize(screen, Image.Resampling.LANCZOS)
     return source
@@ -196,33 +246,30 @@ def _widgets(table: Table) -> tuple[WidgetSpec, ...]:
     seen: set[str] = set()
     for plugin in table.names():
         for index, entry in enumerate(table.tables(plugin), start=1):
-            widget_id = entry.string("id", None) or f"{plugin}#{index}"
-            if widget_id in seen:
-                raise ThemeError(f"duplicate widget id {widget_id!r}")
-            seen.add(widget_id)
-            rect = Rect(
-                entry.integer("x", REQUIRED, 0, 4096),
-                entry.integer("y", REQUIRED, 0, 4096),
-                entry.integer("width", REQUIRED, 1, 4096),
-                entry.integer("height", REQUIRED, 1, 4096),
-            )
-            # fps rather than a period: "fps = 1" is a plainer way to
-            # say once a second, and "fps = 30" says every frame without
-            # needing a zero to mean something special.
-            fps = (
-                entry.number("fps", REQUIRED, 0.001, 240.0)
-                if "fps" in entry
-                else None
-            )
-            specs.append(
-                WidgetSpec(
-                    id=widget_id,
-                    plugin=plugin,
-                    rect=rect,
-                    fps=fps,
-                    options=entry,
-                )
-            )
+            spec = widget_spec(plugin, index, entry)
+            if spec.id in seen:
+                raise ThemeError(f"duplicate widget id {spec.id!r}")
+            seen.add(spec.id)
+            specs.append(spec)
     if not specs:
         raise ThemeError("no [[widget.*]] entries; nothing to draw")
     return tuple(specs)
+
+
+def widget_spec(plugin: str, index: int, entry: Table) -> WidgetSpec:
+    """One [[widget.<plugin>]] entry, the `index`th (from 1) of its plugin.
+
+    Reads the reserved keys; the rest stay in `entry` for the plugin.
+    """
+    widget_id = entry.string("id", None) or f"{plugin}#{index}"
+    rect = Rect(
+        entry.integer("x", REQUIRED, 0, 4096),
+        entry.integer("y", REQUIRED, 0, 4096),
+        entry.integer("width", REQUIRED, 1, 4096),
+        entry.integer("height", REQUIRED, 1, 4096),
+    )
+    # fps rather than a period: "fps = 1" is a plainer way to say once a
+    # second, and "fps = 30" says every frame without needing a zero to
+    # mean something special.
+    fps = entry.number("fps", REQUIRED, 0.001, 240.0) if "fps" in entry else None
+    return WidgetSpec(id=widget_id, plugin=plugin, rect=rect, fps=fps, options=entry)
