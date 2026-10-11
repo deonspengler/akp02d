@@ -236,19 +236,20 @@ class EditorWindow(QMainWindow):
         strip.setStyleSheet(f"QFrame {{ background: {style.CHROME}; border-bottom: 1px solid #2b303a; }}")
         strip_row = QHBoxLayout(strip)
         strip_row.setContentsMargins(10, 4, 10, 4)
-        self.zoom_label = QLabel("100%")
-        self.zoom_label.setObjectName("mono")
-        strip_row.addWidget(QLabel("Canvas"))
-        strip_row.addWidget(self.zoom_label)
         # One or the other: fitted to the view, or actual pixels. Neither
-        # is lit after a Ctrl+wheel zoom; clicking one goes back to it.
-        self.zoom_seg = Segmented((("fit", "Fit"), ("1:1", "1:1")))
-        self.zoom_seg.setToolTip("Fit the whole panel in view, or show it pixel for pixel")
+        # is lit after a Ctrl+wheel zoom -- the level shows beside them
+        # then -- and clicking one goes back to it.
+        self.zoom_seg = Segmented((("fit", "Fit"), ("100", "100%")))
+        self.zoom_seg.setToolTip("Fit the whole panel in view, or show it pixel for pixel. "
+                                 "Ctrl+wheel zooms in between.")
         self.zoom_seg.set_value("fit")
         self.zoom_seg.changed.connect(
             lambda mode: self.canvas.fit() if mode == "fit" else self.canvas.set_zoom(1.0))
-        strip_row.addSpacing(8)
         strip_row.addWidget(self.zoom_seg)
+        self.zoom_label = QLabel()
+        self.zoom_label.setObjectName("mono")
+        self.zoom_label.hide()
+        strip_row.addWidget(self.zoom_label)
         strip_row.addStretch(1)
         self.boxes_box = QCheckBox("Outlines")
         self.boxes_box.setChecked(True)
@@ -264,6 +265,7 @@ class EditorWindow(QMainWindow):
         self.canvas.duplicate_requested.connect(self.duplicate_widget)
         self.canvas.status.connect(lambda text: self.statusBar().showMessage(text, 4000))
         self.canvas.view_changed.connect(self._zoom_changed)
+        self.canvas.hovered.connect(self._hovered)
 
         # Right: settings.
         self.inspector = Inspector()
@@ -284,14 +286,14 @@ class EditorWindow(QMainWindow):
         self.status_shape = QLabel()
         self.status_mount = QLabel("Mount: inverted" if self.config.device.inverted
                                    else "Mount: upright")
-        self.status_data = QLabel("Readings and audio are simulated")
-        self.status_data.setToolTip(
-            "CPU, memory, disk, network and spectrum widgets show made-up moving "
-            "data, so graphs and gauges look alive on any machine. The clock is real.")
         self.status_dirty = QLabel()
-        for label in (self.status_shape, self.status_mount, self.status_data):
-            bar.addWidget(label)
-        bar.addPermanentWidget(self.status_dirty)
+        # Left: the pixel under the mouse. Hidden while a message (a drag
+        # readout, "Saved") is showing; the right-hand facts never are.
+        self.status_hover = QLabel()
+        self.status_hover.setTextFormat(Qt.TextFormat.RichText)
+        bar.addWidget(self.status_hover)
+        for label in (self.status_shape, self.status_mount, self.status_dirty):
+            bar.addPermanentWidget(label)
 
     def _build_actions(self) -> None:
         save_as = QAction("Save As…", self)
@@ -576,9 +578,28 @@ class EditorWindow(QMainWindow):
 
     def _zoom_changed(self) -> None:
         zoom = self.canvas.zoom
+        mode = "fit" if self.canvas.fitted else "100" if abs(zoom - 1.0) < 1e-9 else ""
+        self.zoom_seg.set_value(mode)
         self.zoom_label.setText(f"{round(zoom * 100)}%")
-        self.zoom_seg.set_value("fit" if self.canvas.fitted
-                                else "1:1" if abs(zoom - 1.0) < 1e-9 else "")
+        self.zoom_label.setVisible(mode == "")
+
+    def _hovered(self, point: tuple[int, int] | None) -> None:
+        """Where the mouse is on the panel, and the colour there -- for
+        lining things up, and for taking a colour off the wallpaper."""
+        screen = self.engine.screen
+        if point is None or screen is None:
+            self.status_hover.clear()
+            return
+        x, y = point
+        try:
+            r, g, b = screen.getpixel((x, y))[:3]
+        except IndexError:
+            self.status_hover.clear()
+            return
+        colour = f"#{r:02x}{g:02x}{b:02x}"
+        self.status_hover.setText(
+            f"x {x}, y {y} &nbsp;&nbsp;<span style='background-color:{colour}'>"
+            f"&nbsp;&nbsp;&nbsp;&nbsp;</span>&nbsp;{colour}")
 
     def _boxes_toggled(self, on: bool) -> None:
         self.canvas.show_boxes = on

@@ -36,6 +36,9 @@ text placement are the pixels the daemon will send.
 * Drag widgets to move them and drag handles to resize. Boxes always snap
   to colour-safe offsets, and a drop onto another widget is refused (hold
   Alt to place it anyway, e.g. while swapping two).
+* Hovering over the panel shows the pixel position and its colour in
+  the status bar, for lining widgets up and for taking a colour off
+  the wallpaper.
 * The settings panel is built from each plugin's declared options, so
   every option is there with its default shown, and options that do
   nothing in the current setup (`inner` on a bar spectrum) are hidden.

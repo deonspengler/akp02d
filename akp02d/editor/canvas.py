@@ -53,6 +53,7 @@ class Canvas(QGraphicsView):
     duplicate_requested = Signal(str)
     status = Signal(str)
     view_changed = Signal()
+    hovered = Signal(object)                  # (x, y) panel pixel under the mouse, or None
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -136,7 +137,6 @@ class Canvas(QGraphicsView):
             Qt.TransformationMode.SmoothTransformation if factor < 1
             else Qt.TransformationMode.FastTransformation)
         self.view_changed.emit()
-        self.status.emit(f"zoom {round(factor * 100)}%")
 
     def fit(self) -> None:
         width, height = self.screen
@@ -154,6 +154,10 @@ class Canvas(QGraphicsView):
         super().resizeEvent(event)
         if self.fitted:
             self.fit()
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        super().leaveEvent(event)
+        self.hovered.emit(None)
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -242,6 +246,10 @@ class Canvas(QGraphicsView):
             return
         drag = self._drag
         if drag is None:
+            here = self._scene_point(event)
+            x, y = int(here.x() // 1), int(here.y() // 1)
+            width, height = self.screen
+            self.hovered.emit((x, y) if 0 <= x < width and 0 <= y < height else None)
             handle = self._handle_at(event.position().toPoint())
             if handle != self._hover_handle:
                 self._hover_handle = handle
@@ -257,6 +265,8 @@ class Canvas(QGraphicsView):
         dy = round(point.y() - drag.origin.y())
         if not drag.started and abs(dx) + abs(dy) < 2:
             return
+        if not drag.started:
+            self.hovered.emit(None)  # the drag readout takes over
         drag.started = True
         raw = _apply(drag.start, drag.mode, dx, dy)
         snapped = snap(raw, self.orientation, self.inverted, self.screen, drag.mode)
