@@ -142,3 +142,63 @@ def plugin_icon(plugin: str, colour: str = MUTED, size: int = 16) -> QIcon:
     painter.end()
     pixmap.setDevicePixelRatio(scale)
     return QIcon(pixmap)
+
+
+def _line_icon(draw, size: int = 20) -> QIcon:
+    """An icon from a drawing function, in normal and disabled shades.
+
+    `draw(path)` adds strokes to a QPainterPath in a 16x16 box.
+    """
+    path = QPainterPath()
+    draw(path)
+    icon = QIcon()
+    for colour, mode in ((TEXT, QIcon.Mode.Normal), ("#5d6371", QIcon.Mode.Disabled)):
+        scale = 2
+        pixmap = QPixmap(size * scale, size * scale)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.scale(size * scale / 16, size * scale / 16)
+        pen = QPen(QColor(colour), 1.3)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawPath(path)
+        painter.end()
+        pixmap.setDevicePixelRatio(scale)
+        icon.addPixmap(pixmap, mode)
+    return icon
+
+
+def action_icon(name: str) -> QIcon:
+    """Toolbar icons: new, open, save, undo, redo."""
+
+    def new(p: QPainterPath) -> None:
+        p.moveTo(9.5, 2); p.lineTo(4, 2); p.lineTo(4, 14); p.lineTo(12.5, 14)
+        p.lineTo(12.5, 5); p.lineTo(9.5, 2); p.lineTo(9.5, 5); p.lineTo(12.5, 5)
+        p.moveTo(8.25, 7.5); p.lineTo(8.25, 11.5); p.moveTo(6.25, 9.5); p.lineTo(10.25, 9.5)
+
+    def open_(p: QPainterPath) -> None:
+        p.moveTo(2, 12.5); p.lineTo(2, 3.5); p.lineTo(6, 3.5); p.lineTo(7.5, 5)
+        p.lineTo(13, 5); p.lineTo(13, 7)
+        p.moveTo(2, 12.5); p.lineTo(4, 7); p.lineTo(14.5, 7); p.lineTo(12.5, 12.5)
+        p.closeSubpath()
+
+    def save(p: QPainterPath) -> None:
+        p.moveTo(2.5, 2.5); p.lineTo(11, 2.5); p.lineTo(13.5, 5); p.lineTo(13.5, 13.5)
+        p.lineTo(2.5, 13.5); p.closeSubpath()
+        p.moveTo(5, 2.5); p.lineTo(5, 6); p.lineTo(10.5, 6); p.lineTo(10.5, 2.5)
+        p.addRect(QRectF(5, 9, 6, 4.5))
+
+    def undo(p: QPainterPath) -> None:
+        p.moveTo(5.5, 3.5); p.lineTo(2.5, 6.5); p.lineTo(5.5, 9.5)
+        p.moveTo(2.5, 6.5); p.lineTo(10, 6.5)
+        p.cubicTo(15, 6.5, 15, 13, 10, 13); p.lineTo(6.5, 13)
+
+    def redo(p: QPainterPath) -> None:
+        p.moveTo(10.5, 3.5); p.lineTo(13.5, 6.5); p.lineTo(10.5, 9.5)
+        p.moveTo(13.5, 6.5); p.lineTo(6, 6.5)
+        p.cubicTo(1, 6.5, 1, 13, 6, 13); p.lineTo(9.5, 13)
+
+    drawings = {"new": new, "open": open_, "save": save, "undo": undo, "redo": redo}
+    return _line_icon(drawings[name])

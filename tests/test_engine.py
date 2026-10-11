@@ -5,14 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
 from akp02 import Orientation
 from akp02d import config, layout, theme as theme_module
 from akp02d.app import App
 from akp02d.editor import simulate
 from akp02d.editor.document import Ref, ThemeDocument
-from akp02d.editor.engine import ERROR, WARNING, Encoding, Engine, as_sent_image, snap
+from akp02d.editor.engine import ERROR, WARNING, Engine, snap
 from akp02d.layout import Rect
 
 STATIC = """\
@@ -148,43 +147,27 @@ def test_snap_moves_only_what_is_dragged() -> None:
         Rect(56, 190, 166, 160)
 
 
-def test_as_sent_roundtrip() -> None:
-    image = Image.new("RGB", (462, 1920), (200, 30, 90))
-    for orientation in (Orientation.PORTRAIT, Orientation.LANDSCAPE):
-        size = layout.screen_size(orientation)
-        source = image.resize(size)
-        result, nbytes = as_sent_image(source, orientation, False, Encoding(80, 0))
-        assert result.size == size and nbytes > 0
-        r, g, b = result.getpixel((10, 10))
-        assert abs(r - 200) < 6 and abs(g - 30) < 6 and abs(b - 90) < 6
-
-
-def test_frozen_and_simulated_data(tmp_path: Path) -> None:
+def test_simulated_data(tmp_path: Path) -> None:
     text = STATIC + '\n[[widget.gauge]]\nx = 8\ny = 120\nwidth = 120\nheight = 120\n' \
         'source = "memory"\nformat = "{percent:.0f}%"\n' \
         '\n[[widget.graph]]\nx = 8\ny = 260\nwidth = 200\nheight = 60\nsource = "cpu"\n'
-    settings = simulate.Settings(data=simulate.FROZEN)
-    settings.frozen.memory = 0.25
-    engine, _ = engine_for(text, tmp_path, settings=settings)
+    engine, _ = engine_for(text, tmp_path)
     gauge = next(s for s in engine.slots if s.plugin == "gauge").widget
-    value, fields = gauge._source.read(0.0)
-    assert value == 0.25 and fields["percent"] == 25
+    value, fields = gauge._source.read(10.0)
+    assert 0.0 <= value <= 1.0 and fields["percent"] == value * 100
+    assert "used_gb" in fields and "total_gb" in fields
+    # Readings depend only on the moment asked about.
+    assert gauge._source.read(10.0) == (value, fields)
     graph = next(s for s in engine.slots if s.plugin == "graph").widget
-    # Seeded: full of history before the first tick.
+    # Seeded: full of varied history before the first tick.
     assert len(graph._history) == graph._history.maxlen - 1
-    assert set(graph._history) == {settings.frozen.cpu}
-    settings.data = simulate.SIMULATED
-    engine.reseed()
     assert len(set(graph._history)) > 10
 
 
 def test_simulated_audio_shape() -> None:
-    settings = simulate.Settings()
-    audio = simulate.Audio(32, True, settings)
+    audio = simulate.Audio(32, True)
     frame = audio.read()
     assert frame is not None and len(frame) == 32
     assert all(0 <= v <= 65535 for v in frame)
-    settings.audio = simulate.SILENCE
-    for _ in range(60):
-        frame = audio.read()
-    assert max(frame) < 2000
+    # Stereo mirrors the lows into the middle, as cava does.
+    assert frame[15] > frame[0] and frame[16] > frame[31]

@@ -39,12 +39,10 @@ text placement are the pixels the daemon will send.
 * The settings panel is built from each plugin's declared options, so
   every option is there with its default shown, and options that do
   nothing in the current setup (`inner` on a bar spectrum) are hidden.
-* **Data**: *Live* reads this machine; *Simulated* makes up plausible
-  moving readings so graphs scroll and gauges move; *Frozen* holds
-  values you set, to check a nearly full gauge or take a screenshot.
-  Spectrums get simulated music, a sweep or silence, or real `cava`.
-* **Preview**: *As sent* shows the frame after the JPEG encode the
-  panel receives, at the quality and subsampling in `akp02d.toml`.
+* The preview's readings are simulated -- plausible moving CPU, memory,
+  disk and network data, and made-up music for spectrums -- so graphs
+  scroll and gauges move on any machine, `cava` or not. The clock is
+  real.
 * Settings that only fail on this machine -- a locale not generated
   here, an interface named for another computer -- are previewed
   without that setting and flagged, not treated as errors.

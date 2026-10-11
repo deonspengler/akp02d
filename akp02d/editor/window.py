@@ -16,16 +16,14 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
-from PySide6.QtCore import QSize, Qt, QTime, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import (
-    QAction, QCloseEvent, QColor, QIcon, QImage, QKeySequence, QUndoCommand,
-    QUndoStack,
+    QAction, QCloseEvent, QColor, QImage, QKeySequence, QUndoCommand, QUndoStack,
 )
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QSizePolicy, QSlider, QSplitter, QTimeEdit,
-    QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
+    QMessageBox, QPushButton, QSizePolicy, QSplitter, QToolBar, QToolButton,
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 import akp02d
@@ -34,14 +32,13 @@ from akp02 import Orientation
 from .. import config as config_module, sources
 from ..layout import Rect
 from ..plugins import available, lookup
-from ..plugins import cava
 from ..schema import SOURCE
 from .canvas import Box, Canvas
 from .controls import Segmented
 from .document import DocumentError, Ref, ThemeDocument
-from .engine import ERROR, Encoding, Engine, Problem, as_sent_image, snap
+from .engine import ERROR, Engine, Problem, snap
 from .inspector import Inspector
-from . import simulate, style
+from . import style
 
 log = logging.getLogger(__name__)
 
@@ -92,86 +89,6 @@ class _Edit(QUndoCommand):
         self.window._restore(self.before)
 
 
-class FrozenDialog(QDialog):
-    """Hand-set readings for Frozen data."""
-
-    def __init__(self, settings: simulate.Settings, on_change: Callable[[], None],
-                 parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Frozen values")
-        self.settings = settings
-        self.on_change = on_change
-        form = QFormLayout(self)
-        frozen = settings.frozen
-        for key, label in (("cpu", "cpu"), ("memory", "memory"), ("disk", "disk")):
-            form.addRow(label, self._percent(key, getattr(frozen, key)))
-        form.addRow("network ↓", self._rate("down", frozen.down))
-        form.addRow("network ↑", self._rate("up", frozen.up))
-        clock = QTimeEdit(QTime(frozen.clock.hour, frozen.clock.minute, frozen.clock.second))
-        clock.setDisplayFormat("HH:mm:ss")
-        clock.timeChanged.connect(self._clock)
-        form.addRow("time", clock)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.close)
-        form.addRow(buttons)
-
-    def _percent(self, key: str, value: float) -> QWidget:
-        holder = QWidget()
-        row = QHBoxLayout(holder)
-        row.setContentsMargins(0, 0, 0, 0)
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(0, 100)
-        slider.setValue(round(value * 100))
-        shown = QLabel(f"{round(value * 100)}%")
-        shown.setMinimumWidth(40)
-
-        def moved(v: int) -> None:
-            setattr(self.settings.frozen, key, v / 100)
-            shown.setText(f"{v}%")
-            self.on_change()
-
-        slider.valueChanged.connect(moved)
-        row.addWidget(slider, 1)
-        row.addWidget(shown)
-        return holder
-
-    def _rate(self, key: str, value: float) -> QWidget:
-        import math
-
-        holder = QWidget()
-        row = QHBoxLayout(holder)
-        row.setContentsMargins(0, 0, 0, 0)
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(0, 80)   # 10^0 .. 10^8 bytes/s, in tenths of a decade
-        slider.setValue(round(math.log10(max(value, 1)) * 10))
-        shown = QLabel(_rate_text(value))
-        shown.setMinimumWidth(80)
-
-        def moved(v: int) -> None:
-            rate = 10 ** (v / 10)
-            setattr(self.settings.frozen, key, rate)
-            shown.setText(_rate_text(rate))
-            self.on_change()
-
-        slider.valueChanged.connect(moved)
-        row.addWidget(slider, 1)
-        row.addWidget(shown)
-        return holder
-
-    def _clock(self, value: QTime) -> None:
-        frozen = self.settings.frozen
-        frozen.clock = frozen.clock.replace(hour=value.hour(), minute=value.minute(),
-                                            second=value.second())
-        self.on_change()
-
-
-def _rate_text(rate: float) -> str:
-    for unit, size in (("GB/s", 1e9), ("MB/s", 1e6), ("KB/s", 1e3)):
-        if rate >= size:
-            return f"{rate / size:.1f} {unit}"
-    return f"{rate:.0f} B/s"
-
-
 def to_qimage(image: Image.Image) -> QImage:
     image = image if image.mode == "RGB" else image.convert("RGB")
     data = image.tobytes("raw", "RGB")
@@ -184,20 +101,11 @@ class EditorWindow(QMainWindow):
         super().__init__()
         self.config = cfg
         self.document = document
-        self.settings = simulate.Settings()
-        self.engine = Engine(
-            inverted=cfg.device.inverted,
-            encoding=Encoding(cfg.device.jpeg_quality, cfg.device.jpeg_subsampling),
-            settings=self.settings,
-        )
+        self.engine = Engine(inverted=cfg.device.inverted)
         self.undo = QUndoStack(self)
         self.undo.cleanChanged.connect(lambda _c: self._update_title())
         self.selection: Ref | str | None = None
-        self.as_sent = False
         self.problems: list[Problem] = []
-        self._last_sent = 0.0
-        self._frame_bytes = 0
-        self._frozen_dialog: FrozenDialog | None = None
 
         self.setWindowTitle("akp02d Theme Editor")
         self.resize(1440, 960)
@@ -222,34 +130,34 @@ class EditorWindow(QMainWindow):
     def _build_toolbar(self) -> None:
         bar = QToolBar("Main", self)
         bar.setMovable(False)
-        bar.setIconSize(QSize(18, 18))
+        bar.setIconSize(QSize(20, 20))
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(bar)
         self.toolbar = bar
 
         def action(name: str, icon: str, shortcut: Any, slot: Callable[[], None],
                    tip: str) -> QAction:
-            act = QAction(QIcon.fromTheme(icon), name, self)
-            if act.icon().isNull():
-                bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            # Drawn rather than taken from the icon theme, so they look the
+            # same -- and are legible on the dark toolbar -- on any desktop.
+            act = QAction(style.action_icon(icon), name, self)
             act.setShortcut(shortcut)
             act.setToolTip(f"{tip} ({QKeySequence(shortcut).toString()})" if shortcut else tip)
             act.triggered.connect(slot)
             bar.addAction(act)
             return act
 
-        self.act_new = action("New", "document-new", QKeySequence.StandardKey.New,
+        self.act_new = action("New", "new", QKeySequence.StandardKey.New,
                               self.new_theme, "New theme")
-        self.act_open = action("Open", "document-open", QKeySequence.StandardKey.Open,
+        self.act_open = action("Open", "open", QKeySequence.StandardKey.Open,
                                self.open_theme, "Open a theme")
-        self.act_save = action("Save", "document-save", QKeySequence.StandardKey.Save,
+        self.act_save = action("Save", "save", QKeySequence.StandardKey.Save,
                                self.save, "Save")
         # Fixed labels, with what they would undo in the tooltip: the
         # stack's own actions rename themselves ("Undo Add spectrum") and
         # push the rest of the toolbar around as they do.
-        self.act_undo = action("Undo", "edit-undo", QKeySequence.StandardKey.Undo,
+        self.act_undo = action("Undo", "undo", QKeySequence.StandardKey.Undo,
                                self.undo.undo, "Undo")
-        self.act_redo = action("Redo", "edit-redo", QKeySequence.StandardKey.Redo,
+        self.act_redo = action("Redo", "redo", QKeySequence.StandardKey.Redo,
                                self.undo.redo, "Redo")
         self.act_undo.setEnabled(False)
         self.act_redo.setEnabled(False)
@@ -276,34 +184,6 @@ class EditorWindow(QMainWindow):
         self.orientation_seg.changed.connect(
             lambda v: self.edit_theme("orientation", v, "Change orientation"))
         labelled("Panel", self.orientation_seg)
-
-        self.data_seg = Segmented(((simulate.LIVE, "Live"), (simulate.SIMULATED, "Simulated"),
-                                   (simulate.FROZEN, "Frozen")))
-        self.data_seg.set_value(self.settings.data)
-        self.data_seg.changed.connect(self._data_mode)
-        self.frozen_button = QToolButton()
-        self.frozen_button.setText("Set…")
-        self.frozen_button.setToolTip("Set the frozen readings")
-        self.frozen_button.clicked.connect(self._open_frozen)
-        self.frozen_button.setEnabled(False)
-        data_holder = QWidget()
-        data_row = QHBoxLayout(data_holder)
-        data_row.setContentsMargins(0, 0, 0, 0)
-        data_row.setSpacing(6)
-        data_row.addWidget(self.data_seg)
-        data_row.addWidget(self.frozen_button)
-        labelled("Data", data_holder)
-
-        self.audio_combo = QComboBox()
-        for key, text in ((simulate.MUSIC, "Music-like"), (simulate.SWEEP, "Sweep"),
-                          (simulate.SILENCE, "Silence"), (simulate.CAVA, "cava (real)")):
-            self.audio_combo.addItem(text, key)
-        if not cava.installed():
-            model = self.audio_combo.model()
-            model.item(3).setEnabled(False)
-            self.audio_combo.setItemData(3, "cava is not installed", Qt.ItemDataRole.ToolTipRole)
-        self.audio_combo.activated.connect(self._audio_mode)
-        labelled("Audio", self.audio_combo)
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -397,18 +277,6 @@ class EditorWindow(QMainWindow):
             button.setObjectName("flat")
             button.clicked.connect(slot)
             strip_row.addWidget(button)
-        strip_row.addSpacing(12)
-        self.preview_seg = Segmented((("exact", "Exact"), ("sent", "As sent")))
-        self.preview_seg.set_value("exact")
-        self.preview_seg.setToolTip(
-            "As sent: the frame after the JPEG encode the panel receives, at the "
-            "quality and subsampling set in akp02d.toml")
-        self.preview_seg.changed.connect(self._preview_mode)
-        strip_row.addWidget(self.preview_seg)
-        self.quality_label = QLabel(self._encoding_text())
-        self.quality_label.setObjectName("hint")
-        self.quality_label.setToolTip("JPEG quality and chroma subsampling from akp02d.toml")
-        strip_row.addWidget(self.quality_label)
         strip_row.addStretch(1)
         self.boxes_box = QCheckBox("Outlines")
         self.boxes_box.setChecked(True)
@@ -445,12 +313,13 @@ class EditorWindow(QMainWindow):
         self.status_shape = QLabel()
         self.status_mount = QLabel("Mount: inverted" if self.config.device.inverted
                                    else "Mount: upright")
-        self.status_audio = QLabel()
-        self.status_bytes = QLabel()
+        self.status_data = QLabel("Readings and audio are simulated")
+        self.status_data.setToolTip(
+            "CPU, memory, disk, network and spectrum widgets show made-up moving "
+            "data, so graphs and gauges look alive on any machine. The clock is real.")
         self.status_dirty = QLabel()
-        for label in (self.status_shape, self.status_mount, self.status_audio):
+        for label in (self.status_shape, self.status_mount, self.status_data):
             bar.addWidget(label)
-        bar.addPermanentWidget(self.status_bytes)
         bar.addPermanentWidget(self.status_dirty)
 
     def _build_actions(self) -> None:
@@ -510,7 +379,6 @@ class EditorWindow(QMainWindow):
         self.status_shape.setText(
             f"{'Portrait' if orientation is Orientation.PORTRAIT else 'Landscape'} · "
             f"{width} × {height}")
-        self.status_audio.setText(self._audio_text())
 
     def _update_title(self) -> None:
         doc = self.document
@@ -605,24 +473,7 @@ class EditorWindow(QMainWindow):
     def _update_frame(self, force: bool = False) -> None:
         if self.engine.screen is None:
             return
-        if self.as_sent:
-            now = time.monotonic()
-            if not force and now - self._last_sent < 0.1:
-                return
-            self._last_sent = now
-            image, size = as_sent_image(self.engine.screen, self.engine.orientation,
-                                        self.config.device.inverted, self.engine.encoding)
-            self._frame_bytes = size
-        else:
-            image = self.engine.screen
-        qimage = to_qimage(image)
-        self.canvas.set_frame(qimage)
-        if force or self._frame_bytes == 0:
-            _, self._frame_bytes = as_sent_image(
-                self.engine.screen, self.engine.orientation, self.config.device.inverted,
-                self.engine.encoding)
-        self.status_bytes.setText(
-            f"Full frame ≈ {self._frame_bytes / 1024:.0f} KiB as JPEG {self._encoding_text()}")
+        self.canvas.set_frame(to_qimage(self.engine.screen))
 
     def _tick(self) -> None:
         if self.engine.tick():
@@ -756,49 +607,6 @@ class EditorWindow(QMainWindow):
             self._set_selection(new)
             self.canvas.reveal(self._id_of(new))
 
-    # -- preview modes --
-
-    def _data_mode(self, mode: str) -> None:
-        self.settings.data = mode
-        self.engine.reseed()
-        self.frozen_button.setEnabled(mode == simulate.FROZEN)
-        if mode == simulate.FROZEN:
-            self._open_frozen()
-        self.status_audio.setText(self._audio_text())
-
-    def _open_frozen(self) -> None:
-        if self._frozen_dialog is None:
-            self._frozen_dialog = FrozenDialog(self.settings, lambda: None, self)
-        self._frozen_dialog.show()
-        self._frozen_dialog.raise_()
-
-    def _audio_mode(self, index: int) -> None:
-        mode = self.audio_combo.itemData(index)
-        was_cava = self.settings.audio == simulate.CAVA
-        self.settings.audio = mode
-        if was_cava != (mode == simulate.CAVA):
-            self.refresh()
-        self.status_audio.setText(self._audio_text())
-
-    def _audio_text(self) -> str:
-        has_spectrum = any(slot.plugin == "spectrum" for slot in self.engine.slots)
-        data = {"live": "live data", "simulated": "simulated data",
-                "frozen": "frozen data"}[self.settings.data]
-        if not has_spectrum:
-            return f"Sources: {data}"
-        audio = {"music": "simulated music", "sweep": "frequency sweep",
-                 "silence": "silence", "cava": "cava"}[self.settings.audio]
-        return f"Sources: {data} · Spectrum: {audio}"
-
-    def _preview_mode(self, mode: str) -> None:
-        self.as_sent = mode == "sent"
-        self._update_frame(force=True)
-
-    def _encoding_text(self) -> str:
-        names = {-1: "auto", 0: "4:4:4", 1: "4:2:2", 2: "4:2:0"}
-        enc = self.engine.encoding
-        return f"q{enc.quality} · {names.get(enc.subsampling, enc.subsampling)}"
-
     def _boxes_toggled(self, on: bool) -> None:
         self.canvas.show_boxes = on
         self.canvas.viewport().update()
@@ -837,8 +645,7 @@ class EditorWindow(QMainWindow):
 
     def _replace(self, document: ThemeDocument) -> None:
         self.engine.close()
-        self.engine = Engine(inverted=self.config.device.inverted,
-                             encoding=self.engine.encoding, settings=self.settings)
+        self.engine = Engine(inverted=self.config.device.inverted)
         self.document = document
         self.selection = None
         self.undo.clear()
@@ -896,7 +703,7 @@ class EditorWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Export PNG", start, "PNG image (*.png)")
         if not path:
             return
-        self.engine.frame(as_sent=self.as_sent).save(path)
+        self.engine.frame().save(path)
         self.statusBar().showMessage(f"Exported {path}", 4000)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802

@@ -23,7 +23,6 @@ theme is half-made:
 
 from __future__ import annotations
 
-import io
 import logging
 import time
 from dataclasses import dataclass
@@ -88,29 +87,19 @@ class Slot:
         return self.widget.fps if self.widget is not None else None
 
 
-@dataclass(slots=True)
-class Encoding:
-    quality: int = AKP02.JPEG_QUALITY
-    subsampling: int = AKP02.JPEG_SUBSAMPLING
-
-
 class Engine:
     """Builds, ticks and composites a theme's widgets, no panel needed."""
 
     LOOP_FPS = 30.0
 
-    def __init__(self, *, inverted: bool = False, encoding: Encoding | None = None,
-                 settings: simulate.Settings | None = None) -> None:
+    def __init__(self, *, inverted: bool = False) -> None:
         self.inverted = inverted
-        self.encoding = encoding or Encoding()
-        self.settings = settings or simulate.Settings()
         self.theme: theme_module.Theme | None = None
         self.theme_error: str | None = None
         self.slots: list[Slot] = []
         self.screen: Image.Image | None = None
         self._theme_key: tuple | None = None
         self._locales: tuple = ()
-        self._audio_key: str = ""
         self._entries: dict[Ref, dict[str, Any]] = {}
 
     # -- building --
@@ -162,9 +151,6 @@ class Engine:
         if locales_changed:
             reset_locale()
             self._locales = locales
-        audio_key = self.settings.audio if self.settings.audio == simulate.CAVA else "sim"
-        audio_changed = audio_key != self._audio_key
-        self._audio_key = audio_key
 
         old = {slot.ref: slot for slot in self.slots}
         new_slots: list[Slot] = []
@@ -178,7 +164,6 @@ class Engine:
                 and previous.key == key
                 and not theme_changed
                 and not (locales_changed and ref.plugin == "label")
-                and not (audio_changed and ref.plugin == "spectrum")
             )
             if reuse:
                 assert previous is not None
@@ -199,8 +184,7 @@ class Engine:
         self._composite()
 
     def rebuild(self, slot_id: str | None = None) -> None:
-        """Rebuild one widget (or all) from its current entry, e.g. after
-        switching between simulated and real audio."""
+        """Rebuild one widget (or all) from its current entry."""
         for index, slot in enumerate(self.slots):
             if slot_id is not None and slot.id != slot_id:
                 continue
@@ -235,11 +219,9 @@ class Engine:
         assert self.theme is not None
         index = slot.ref.index - 1
         table = Table(entry, f"widget.{slot.plugin}[{index}]")
-        settings = self.settings
-        use_cava = slot.plugin == "spectrum" and settings.audio == simulate.CAVA
         previous_wrap = sources.wrap
-        sources.wrap = lambda real, name: simulate.StandIn(real, name, settings)
-        plugin_base.set_preview(not use_cava)
+        sources.wrap = simulate.StandIn
+        plugin_base.set_preview(True)
         try:
             spec = theme_module.widget_spec(slot.plugin, slot.ref.index, table)
             slot.spec = spec
@@ -253,7 +235,7 @@ class Engine:
             plugin_base.set_preview(False)
         if isinstance(widget, SpectrumWidget) and widget._stream is None:
             channels = entry.get("channels", "stereo")
-            widget._stream = simulate.Audio(widget._bars, channels == "stereo", settings)
+            widget._stream = simulate.Audio(widget._bars, channels == "stereo")
         widget.period = max(widget.period, 1.0 / self.LOOP_FPS)
         slot.widget = widget
         self._seed(widget)
@@ -262,22 +244,15 @@ class Engine:
         return None
 
     def _seed(self, widget: Widget) -> None:
-        """Give a history-keeping widget its past at once, when the data
-        is made up and so has a past to read."""
+        """Give a history-keeping widget its past at once: the data is
+        made up, so any earlier moment can be read."""
         seed = getattr(widget, "seed", None)
-        if seed is None or self.settings.data == simulate.LIVE:
+        if seed is None:
             return
         try:
             seed(time.monotonic(), widget.period)
         except Exception:  # noqa: BLE001 -- a preview nicety, never fatal
             log.debug("seeding %r failed", widget, exc_info=True)
-
-    def reseed(self) -> None:
-        """After switching data mode, refill histories from the new data."""
-        for slot in self.slots:
-            if slot.widget is not None:
-                self._seed(slot.widget)
-                slot.due = 0.0
 
     # -- running --
 
@@ -318,14 +293,10 @@ class Engine:
             return
         self.screen.paste(self.theme.backdrop(slot.rect), slot.rect.at)
 
-    def frame(self, as_sent: bool = False) -> Image.Image:
-        """The panel as it stands; `as_sent` runs it through the JPEG the
-        daemon would send."""
+    def frame(self) -> Image.Image:
+        """The panel as it stands."""
         assert self.screen is not None
-        if not as_sent:
-            return self.screen.copy()
-        return as_sent_image(self.screen, self.orientation, self.inverted,
-                             self.encoding)[0]
+        return self.screen.copy()
 
     def close(self) -> None:
         for slot in self.slots:
@@ -347,8 +318,8 @@ class Engine:
             if slot.plugin == "spectrum" and slot.widget is not None and not cava.installed():
                 out.append(Problem(
                     WARNING,
-                    "cava is not installed here; the preview uses simulated "
-                    "audio, and the daemon will refuse this widget until it is",
+                    "cava is not installed on this machine; the daemon needs it "
+                    "for a spectrum (the preview uses made-up music either way)",
                     slot.id,
                 ))
         out += layout_problems(
@@ -474,43 +445,6 @@ def _clamp(rect: Rect, screen: tuple[int, int]) -> Rect:
     return Rect(x, y, w, h)
 
 
-# -- encoding --
-
-_INVERSE = {
-    Image.Transpose.ROTATE_90: Image.Transpose.ROTATE_270,
-    Image.Transpose.ROTATE_270: Image.Transpose.ROTATE_90,
-    Image.Transpose.ROTATE_180: Image.Transpose.ROTATE_180,
-}
-
-
-def as_sent_image(
-    image: Image.Image, orientation: Orientation, inverted: bool, encoding: Encoding
-) -> tuple[Image.Image, int]:
-    """`image` after the JPEG round trip the daemon's pushes go through,
-    and the size of a full frame in bytes.
-
-    Encoded in the panel's own buffer orientation, as the library does,
-    so the 8x8 block grid falls where it will on the glass.
-    """
-    try:
-        from akp02 import _TRANSPOSE  # the library's own table
-        transpose = _TRANSPOSE.get((orientation, bool(inverted)))
-    except ImportError:
-        transpose = None
-    work = image.transpose(transpose) if transpose is not None else image
-    buffer = io.BytesIO()
-    work.save(buffer, format="JPEG", quality=encoding.quality,
-              subsampling=encoding.subsampling)
-    size = buffer.tell()
-    buffer.seek(0)
-    with Image.open(buffer) as decoded:
-        result = decoded.convert("RGB")
-    if transpose is not None:
-        result = result.transpose(_INVERSE[transpose])
-    return result, size
-
-
 __all__ = [
-    "ERROR", "WARNING", "Encoding", "Engine", "Problem", "Slot",
-    "as_sent_image", "layout_problems", "snap",
+    "ERROR", "WARNING", "Engine", "Problem", "Slot", "layout_problems", "snap",
 ]
