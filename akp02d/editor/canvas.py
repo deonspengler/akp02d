@@ -6,9 +6,9 @@ geometry. Interaction happens in panel pixels, so a box is always at a
 whole coordinate, and every drag is checked against the same two rules
 the daemon enforces at load:
 
-* colour-safe placement: the coordinate the panel's rule binds snaps to
-  the nearest offset that renders in true colour (Snap on), or is shown
-  red until it does (Snap off);
+* colour-safe placement: the coordinate the panel's rule binds always
+  snaps to the nearest offset that renders in true colour, so a box can
+  never be placed where it would draw in the wrong colours;
 * no overlaps: a drop onto another widget is refused and the box goes
   back where it was, unless Alt is held -- for the moment when swapping
   two widgets needs one to sit on the other briefly.
@@ -25,7 +25,7 @@ from PySide6.QtGui import (
     QPainter, QPen, QPixmap, QWheelEvent,
 )
 from PySide6.QtWidgets import (
-    QGraphicsPixmapItem, QGraphicsScene, QGraphicsView, QMenu, QWidget,
+    QGraphicsPixmapItem, QGraphicsScene, QGraphicsView, QMenu,
 )
 
 from .. import layout
@@ -75,7 +75,6 @@ class Canvas(QGraphicsView):
         self.boxes: list[Box] = []
         self.selected_id: str | None = None
         self.show_boxes = True
-        self.snapping = True
         self.accent = QColor(style.ACCENT)
         self.orientation = Orientation.PORTRAIT
         self.inverted = False
@@ -251,8 +250,7 @@ class Canvas(QGraphicsView):
             return
         drag.started = True
         raw = _apply(drag.start, drag.mode, dx, dy)
-        snapped = (snap(raw, self.orientation, self.inverted, self.screen, drag.mode)
-                   if self.snapping else raw)
+        snapped = snap(raw, self.orientation, self.inverted, self.screen, drag.mode)
         drag.raw, drag.rect = raw, snapped
         drag.overlaps = [b.id for b in self.boxes
                          if b.id != drag.id and b.rect.overlaps(snapped)]
@@ -315,12 +313,11 @@ class Canvas(QGraphicsView):
         axis, _, _, _ = layout.bound_axis(box.rect, self.orientation, self.inverted)
         step = 10 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
         # Along the bound axis, one step is one colour-safe slot.
-        modulus = AKP02.SHORT_AXIS_ALIGN_MODULUS if self.snapping else 1
+        modulus = AKP02.SHORT_AXIS_ALIGN_MODULUS
         dx *= step * (modulus if axis == "x" else 1)
         dy *= step * (modulus if axis == "y" else 1)
         moved = Rect(box.rect.x + dx, box.rect.y + dy, box.rect.width, box.rect.height)
-        moved = (snap(moved, self.orientation, self.inverted, self.screen)
-                 if self.snapping else moved)
+        moved = snap(moved, self.orientation, self.inverted, self.screen)
         clash = [b.id for b in self.boxes if b.id != box.id and b.rect.overlaps(moved)]
         if clash:
             self.status.emit(f"{box.id} would overlap {', '.join(clash)}")
@@ -371,7 +368,7 @@ class Canvas(QGraphicsView):
         painter.drawRect(QRectF(0, 0, width, height))
         drag = self._drag if self._drag is not None and self._drag.started else None
 
-        if drag is not None and self.snapping:
+        if drag is not None:
             self._draw_guides(painter, drag)
 
         painter.save()
@@ -517,64 +514,3 @@ _CURSORS = {
     "l": Qt.CursorShape.SizeHorCursor, "r": Qt.CursorShape.SizeHorCursor,
     "t": Qt.CursorShape.SizeVerCursor, "b": Qt.CursorShape.SizeVerCursor,
 }
-
-
-class Overview(QWidget):
-    """The whole panel, small, with the canvas's view marked on it."""
-
-    def __init__(self, canvas: Canvas, parent=None) -> None:
-        super().__init__(parent)
-        self.canvas = canvas
-        self.image: QImage | None = None
-        self.setMinimumSize(120, 80)
-        self.setMouseTracking(False)
-        canvas.view_changed.connect(self.update)
-
-    def set_frame(self, image: QImage) -> None:
-        self.image = image
-        self.update()
-
-    def _placement(self) -> tuple[QRectF, float]:
-        width, height = self.canvas.screen
-        area = QRectF(self.rect()).adjusted(12, 12, -12, -12)
-        scale = min(area.width() / width, area.height() / height)
-        shown = QRectF(0, 0, width * scale, height * scale)
-        shown.moveCenter(area.center())
-        shown.moveTop(area.top())
-        return shown, scale
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(style.CANVAS))
-        shown, scale = self._placement()
-        if self.image is not None:
-            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            painter.drawImage(shown, self.image)
-        painter.setPen(QPen(QColor(style.BORDER), 1))
-        painter.drawRect(shown)
-        view = self.canvas.visible_scene_rect()
-        marked = QRectF(shown.x() + view.x() * scale, shown.y() + view.y() * scale,
-                        view.width() * scale, view.height() * scale).intersected(shown)
-        painter.setPen(QPen(self.canvas.accent, 1.5))
-        fill = QColor(self.canvas.accent)
-        fill.setAlpha(25)
-        painter.setBrush(fill)
-        painter.drawRect(marked)
-        box = self.canvas._box(self.canvas.selected_id)
-        if box is not None:
-            r = box.rect
-            painter.setPen(QPen(QColor("#ffffff"), 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(QRectF(shown.x() + r.x * scale, shown.y() + r.y * scale,
-                                    r.width * scale, r.height * scale))
-
-    def _jump(self, pos: QPointF) -> None:
-        shown, scale = self._placement()
-        self.canvas.centerOn((pos.x() - shown.x()) / scale, (pos.y() - shown.y()) / scale)
-
-    def mousePressEvent(self, event) -> None:  # noqa: N802
-        self._jump(event.position())
-
-    def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        if event.buttons() & Qt.MouseButton.LeftButton:
-            self._jump(event.position())

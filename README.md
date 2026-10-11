@@ -33,8 +33,8 @@ A Qt editor with a live preview that needs no panel. The preview is not
 an imitation: it runs akp02d's own widgets, so fonts, gradients and
 text placement are the pixels the daemon will send.
 
-* Drag widgets to move them and drag handles to resize. Boxes snap to
-  colour-safe offsets, and a drop onto another widget is refused (hold
+* Drag widgets to move them and drag handles to resize. Boxes always snap
+  to colour-safe offsets, and a drop onto another widget is refused (hold
   Alt to place it anyway, e.g. while swapping two).
 * The settings panel is built from each plugin's declared options, so
   every option is there with its default shown, and options that do
@@ -50,8 +50,7 @@ text placement are the pixels the daemon will send.
   without that setting and flagged, not treated as errors.
 * Saving edits `theme.toml` in place: only changed lines change, and
   comments and the order of blocks are kept. With the daemon running,
-  saving is all it takes to see the result on the panel. Without it,
-  *Show on panel* sends the current frame once.
+  saving is all it takes to see the result on the panel.
 
 The bundled default theme is read-only; saving it asks for a new name
 under `~/.config/akp02d/themes/`.

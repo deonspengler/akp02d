@@ -22,7 +22,7 @@ from PySide6.QtGui import (
     QUndoStack,
 )
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPushButton, QSizePolicy, QSlider, QSplitter, QTimeEdit,
     QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -36,7 +36,7 @@ from ..layout import Rect
 from ..plugins import available, lookup
 from ..plugins import cava
 from ..schema import SOURCE
-from .canvas import Box, Canvas, Overview
+from .canvas import Box, Canvas
 from .controls import Segmented
 from .document import DocumentError, Ref, ThemeDocument
 from .engine import ERROR, Encoding, Engine, Problem, as_sent_image, snap
@@ -311,17 +311,6 @@ class EditorWindow(QMainWindow):
         export = QPushButton("Export PNG")
         export.clicked.connect(self.export_png)
         bar.addWidget(export)
-        self.panel_button = QPushButton("Show on panel")
-        self.panel_button.setObjectName("primary")
-        self.panel_button.setToolTip(
-            "Send the current frame to the panel once, without saving. If the "
-            "daemon is running, just save instead: it reloads the theme.")
-        self.panel_button.clicked.connect(self.show_on_panel)
-        holder = QWidget()
-        row = QHBoxLayout(holder)
-        row.setContentsMargins(8, 0, 0, 0)
-        row.addWidget(self.panel_button)
-        bar.addWidget(holder)
 
     def _build_body(self) -> None:
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -388,13 +377,8 @@ class EditorWindow(QMainWindow):
         left.setMinimumWidth(230)
         splitter.addWidget(left)
 
-        # Middle: overview and canvas.
-        middle = QSplitter(Qt.Orientation.Horizontal)
-        middle.setHandleWidth(1)
-        self.middle = middle
+        # Middle: the canvas.
         self.canvas = Canvas()
-        self.overview = Overview(self.canvas)
-        self.overview.setMinimumWidth(150)
         canvas_column = QWidget()
         canvas_layout = QVBoxLayout(canvas_column)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
@@ -426,24 +410,13 @@ class EditorWindow(QMainWindow):
         self.quality_label.setToolTip("JPEG quality and chroma subsampling from akp02d.toml")
         strip_row.addWidget(self.quality_label)
         strip_row.addStretch(1)
-        self.snap_box = QCheckBox("Snap")
-        self.snap_box.setChecked(True)
-        self.snap_box.setToolTip("Snap to colour-safe offsets: keep widgets where the panel "
-                                 "renders them in true colour")
-        self.snap_box.toggled.connect(self._snap_toggled)
-        strip_row.addWidget(self.snap_box)
         self.boxes_box = QCheckBox("Outlines")
         self.boxes_box.setChecked(True)
         self.boxes_box.toggled.connect(self._boxes_toggled)
         strip_row.addWidget(self.boxes_box)
         canvas_layout.addWidget(strip)
         canvas_layout.addWidget(self.canvas, 1)
-        middle.addWidget(self.overview)
-        middle.addWidget(canvas_column)
-        middle.setStretchFactor(0, 0)
-        middle.setStretchFactor(1, 1)
-        middle.setSizes([200, 700])
-        splitter.addWidget(middle)
+        splitter.addWidget(canvas_column)
 
         self.canvas.selected.connect(self._canvas_picked)
         self.canvas.geometry_committed.connect(self._geometry_from_canvas)
@@ -525,14 +498,6 @@ class EditorWindow(QMainWindow):
         if isinstance(self.selection, Ref) and self.selection not in doc.refs():
             self.selection = None
         orientation = self.engine.orientation
-        # The overview sits beside a tall panel and above a wide one.
-        wanted = (Qt.Orientation.Horizontal if orientation is Orientation.PORTRAIT
-                  else Qt.Orientation.Vertical)
-        if self.middle.orientation() != wanted:
-            self.middle.setOrientation(wanted)
-            total = sum(self.middle.sizes()) or 800
-            first = 200 if wanted == Qt.Orientation.Horizontal else 130
-            self.middle.setSizes([first, max(total - first, 100)])
         self.canvas.set_rules(orientation, self.config.device.inverted)
         self.orientation_seg.set_value(
             "portrait" if orientation is Orientation.PORTRAIT else "landscape")
@@ -652,7 +617,6 @@ class EditorWindow(QMainWindow):
             image = self.engine.screen
         qimage = to_qimage(image)
         self.canvas.set_frame(qimage)
-        self.overview.set_frame(qimage)
         if force or self._frame_bytes == 0:
             _, self._frame_bytes = as_sent_image(
                 self.engine.screen, self.engine.orientation, self.config.device.inverted,
@@ -686,7 +650,6 @@ class EditorWindow(QMainWindow):
         self.canvas.select(self._id_of(selection) if isinstance(selection, Ref) else None)
         self._update_layers()
         self._update_inspector()
-        self.overview.update()
 
     def _select_id(self, widget_id: str) -> None:
         ref = self.document.find(widget_id)
@@ -836,9 +799,6 @@ class EditorWindow(QMainWindow):
         enc = self.engine.encoding
         return f"q{enc.quality} · {names.get(enc.subsampling, enc.subsampling)}"
 
-    def _snap_toggled(self, on: bool) -> None:
-        self.canvas.snapping = on
-
     def _boxes_toggled(self, on: bool) -> None:
         self.canvas.show_boxes = on
         self.canvas.viewport().update()
@@ -938,38 +898,6 @@ class EditorWindow(QMainWindow):
             return
         self.engine.frame(as_sent=self.as_sent).save(path)
         self.statusBar().showMessage(f"Exported {path}", 4000)
-
-    def show_on_panel(self) -> None:
-        """Send this frame to the panel once, without saving anything."""
-        from akp02 import AKP02, DeviceNotFoundError
-
-        if self.engine.screen is None:
-            return
-        frame = self.engine.frame()
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            device = self.config.device
-            panel = AKP02(jpeg_quality=device.jpeg_quality,
-                          jpeg_subsampling=device.jpeg_subsampling,
-                          keepalive_interval=None)
-            with panel:
-                if self.engine.orientation is not Orientation.LANDSCAPE:
-                    panel.orientation(self.engine.orientation)
-                panel.inverted = device.inverted
-                panel.set_brightness(device.brightness)
-                panel.screen_on()
-                panel.show(frame)
-        except (DeviceNotFoundError, ImportError) as exc:
-            QMessageBox.information(self, "Panel not found", f"{exc}")
-        except OSError as exc:
-            QMessageBox.warning(
-                self, "Panel busy",
-                f"Could not write to the panel: {exc}\n\nIf akp02d is running, it has "
-                f"the panel; save the theme instead and it will reload.")
-        else:
-            self.statusBar().showMessage("Frame sent to the panel", 4000)
-        finally:
-            QApplication.restoreOverrideCursor()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         if not self._confirm_discard():
