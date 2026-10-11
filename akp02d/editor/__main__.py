@@ -32,9 +32,13 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(levelname)s %(name)s: %(message)s")
     try:
         from PySide6.QtWidgets import QApplication, QMessageBox
-    except ImportError:
-        print("akp02d-edit needs PySide6: pip install 'akp02d[editor]' "
-              "(or your distribution's pyside6 package)", file=sys.stderr)
+    except ImportError as exc:
+        # Say what failed: "not installed" and "installed for another
+        # Python" or "a library it needs is missing" need different fixes.
+        print(f"akp02d-edit could not load PySide6: {exc}\n"
+              f"  python: {sys.executable} ({sys.version.split()[0]})\n"
+              "Install it with pip install 'akp02d[editor]' or your "
+              "distribution's pyside6 package -- for this Python.", file=sys.stderr)
         return 1
 
     from . import style
