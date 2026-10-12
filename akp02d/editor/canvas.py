@@ -19,12 +19,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from akp02 import AKP02, Orientation
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (
+from PyQt6.QtCore import (
+    QPoint, QPointF, QRect, QRectF, Qt, QTimer, pyqtSignal as Signal,
+)
+from PyQt6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QImage, QKeyEvent, QMouseEvent,
     QPainter, QPen, QPixmap, QWheelEvent,
 )
-from PySide6.QtWidgets import (
+from PyQt6.QtWidgets import (
     QGraphicsPixmapItem, QGraphicsScene, QGraphicsView, QMenu,
 )
 

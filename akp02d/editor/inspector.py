@@ -14,11 +14,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal as Signal
+from PyQt6.QtWidgets import (
     QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
-    QMessageBox, QPushButton, QScrollArea, QSpinBox, QToolButton, QVBoxLayout,
-    QWidget,
+    QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QToolButton,
+    QVBoxLayout, QWidget,
 )
 
 from akp02 import AKP02
@@ -325,6 +325,10 @@ class Inspector(QWidget):
             spin.setObjectName(f"geometry.{key}")
             spin.setRange(0 if key in ("x", "y") else 1, max(top, 1))
             spin.setKeyboardTracking(False)
+            # Share the row rather than insist on the hint's width, so four
+            # of them never push the form wider than its column.
+            spin.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            spin.setMinimumWidth(48)
             spin.setValue(getattr(current, key))
             spins[key] = spin
             box.addWidget(caption)

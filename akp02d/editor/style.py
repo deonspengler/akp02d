@@ -8,9 +8,9 @@ whatever desktop runs it.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PySide6.QtWidgets import QApplication
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
+from PyQt6.QtWidgets import QApplication
 
 GROUND = "#16181d"
 CHROME = "#1e2128"

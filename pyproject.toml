@@ -11,7 +11,7 @@ dependencies = ["akp02>=2.0.0", "pillow>=10.1"]
 
 [project.optional-dependencies]
 # The theme editor. The daemon never imports it.
-editor = ["PySide6-Essentials>=6.5"]
+editor = ["PyQt6>=6.5"]
 test = ["pytest>=7"]
 
 [project.scripts]

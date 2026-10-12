@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import (
+from PyQt6.QtCore import QSize, Qt, QTimer
+from PyQt6.QtGui import (
     QAction, QCloseEvent, QColor, QImage, QKeySequence, QUndoCommand, QUndoStack,
 )
-from PySide6.QtWidgets import (
+from PyQt6.QtWidgets import (
     QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPushButton, QSizePolicy, QSplitter, QToolBar,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,

@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from PIL import ImageColor
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
-from PySide6.QtWidgets import (
+from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal as Signal
+from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
+from PyQt6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QHBoxLayout, QLineEdit, QMenu,
     QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
 )
@@ -232,7 +232,7 @@ class TextField(QLineEdit):
         if mono:
             font = self.font()
             font.setFamily("monospace")
-            font.setStyleHint(font.StyleHint.Monospace)
+            font.setStyleHint(QFont.StyleHint.Monospace)
             self.setFont(font)
         self._value: str | None = None
         self.editingFinished.connect(self._commit)
