@@ -74,6 +74,23 @@ QGroupBox::title {{ subcontrol-origin: margin; left: 0; top: 2px; color: {FAINT}
 QScrollArea {{ border: none; background: {PANEL}; }}
 QScrollArea > QWidget > QWidget {{ background: {PANEL}; }}
 QCheckBox {{ color: {TEXT}; }}
+/* Spin boxes without arrows: values are typed, scrolled, or stepped with
+   the Up/Down keys. Hidden here rather than with NoButtons, which with a
+   styled box makes Qt draw no text at all. */
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{
+    width: 0px; border: none; }}
+/* Slim scroll bars in the window's colours, with no arrow buttons. */
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 0; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 0; }}
+QScrollBar::handle {{ background: #3a4150; border-radius: 3px; margin: 2px; }}
+QScrollBar::handle:vertical {{ min-height: 28px; }}
+QScrollBar::handle:horizontal {{ min-width: 28px; }}
+QScrollBar::handle:hover {{ background: #4a5263; }}
+QScrollBar::handle:pressed {{ background: {ACCENT}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{
+    width: 0px; height: 0px; border: none; background: none; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
+QAbstractScrollArea::corner {{ background: transparent; }}
 QToolTip {{ background: {FIELD}; color: {TEXT}; border: 1px solid {BORDER}; padding: 4px; }}
 QMenu {{ background: {FIELD}; border: 1px solid {BORDER}; }}
 QMenu::item:selected {{ background: #24425a; }}
