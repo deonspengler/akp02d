@@ -50,7 +50,7 @@ ERROR, WARNING = "error", "warning"
 
 # Keys whose values describe the machine the daemon runs on rather than
 # the look. If a widget fails to build here, it is retried without them.
-MACHINE_KEYS = {"locale", "interface", "path"}
+MACHINE_KEYS = {"locale", "interface", "path", "sensor", "sensor_label"}
 
 
 @dataclass(slots=True)
@@ -315,6 +315,12 @@ class Engine:
                 out.append(Problem(ERROR, slot.error, slot.id))
             if slot.warning:
                 out.append(Problem(WARNING, slot.warning, slot.id))
+            real = getattr(getattr(slot.widget, "_source", None), "real", None)
+            missing = getattr(real, "unavailable", None)
+            if missing:
+                out.append(Problem(
+                    WARNING, f"{missing} -- previewed with simulated readings; it "
+                    f"may well exist on the machine the panel is on", slot.id))
             if slot.plugin == "spectrum" and slot.widget is not None and not cava.installed():
                 out.append(Problem(
                     WARNING,

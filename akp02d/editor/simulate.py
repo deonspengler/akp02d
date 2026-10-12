@@ -22,7 +22,7 @@ from typing import Any
 from .. import sources
 from ..plugins import cava
 
-KNOWN = ("time", "cpu", "memory", "disk", "network")
+KNOWN = ("time", "cpu", "memory", "disk", "network", "temperature")
 
 
 def _wave(now: float, *periods: float) -> float:
@@ -81,12 +81,13 @@ class StandIn:
     with history the moment it is built.
     """
 
-    __slots__ = ("kind", "name", "real")
+    __slots__ = ("kind", "name", "range", "real")
 
     def __init__(self, real: sources.Source, name: str) -> None:
         self.real = real
         self.name = name
         self.kind = real.kind
+        self.range = getattr(real, "range", (0.0, 1.0))
 
     def read(self, now: float) -> tuple[Any, dict[str, Any]]:
         name = self.name
@@ -98,6 +99,13 @@ class StandIn:
             down = 10 ** (3.2 + 3.6 * _wave(now, 23, 9.1, 3.3) ** 3)
             up = 10 ** (2.8 + 2.6 * _wave(now + 40, 17, 6.7, 2.9) ** 3)
             return None, pair_fields(up, down)
+        if name == "temperature":
+            # Idles warm and drifts: a heatsink smooths out what the CPU
+            # does second to second, so only slow waves here.
+            celsius = 42.0 + 28.0 * _wave(now, 53, 23, 11) ** 2 + 3.0 * _wave(now, 7.1)
+            real = self.real
+            return celsius, sources.temperature_fields(
+                celsius, getattr(real, "_chip", ""), getattr(real, "_label", ""))
         if name == "cpu":
             fraction = 0.08 + 0.8 * _wave(now, 11, 4.3, 1.7) ** 2
         elif name == "memory":

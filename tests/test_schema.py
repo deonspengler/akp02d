@@ -137,3 +137,67 @@ def test_source_option_kind() -> None:
     option = lookup("graph").schema["source"]
     assert option.kind == SOURCE and option.required
     assert isinstance(option, Option) and option.default is REQUIRED
+
+
+# -- the temperature source --
+
+
+def _fake_sysfs(root, monkeypatch) -> None:
+    """Two hwmon chips and a thermal zone, as the kernel lays them out."""
+    hwmon = root / "hwmon"
+    for index, (name, readings) in enumerate((
+        ("nvme", [("Composite", 38500)]),
+        ("k10temp", [("Tctl", 61250), ("Tccd1", 55000)]),
+    )):
+        chip = hwmon / f"hwmon{index}"
+        chip.mkdir(parents=True)
+        (chip / "name").write_text(name + "\n")
+        for number, (label, milli) in enumerate(readings, start=1):
+            (chip / f"temp{number}_input").write_text(f"{milli}\n")
+            (chip / f"temp{number}_label").write_text(label + "\n")
+    zone = root / "thermal" / "thermal_zone0"
+    zone.mkdir(parents=True)
+    (zone / "type").write_text("acpitz\n")
+    (zone / "temp").write_text("27800\n")
+    monkeypatch.setattr(sources, "HWMON", hwmon)
+    monkeypatch.setattr(sources, "THERMAL", root / "thermal")
+
+
+def test_temperature_picks_the_cpu(tmp_path, monkeypatch) -> None:
+    _fake_sysfs(tmp_path, monkeypatch)
+    source = sources.create("temperature", Table({}), "w")
+    value, fields = source.read(0.0)
+    assert value == 61.25 and fields["celsius"] == 61.25
+    assert fields["sensor"] == "k10temp" and fields["sensor_label"] == "Tctl"
+    assert round(fields["fahrenheit"], 2) == 142.25
+    assert "{celsius:.0f}°C".format(**fields) == "61°C"
+
+
+def test_temperature_named_sensor_and_label(tmp_path, monkeypatch) -> None:
+    _fake_sysfs(tmp_path, monkeypatch)
+    nvme = sources.create("temperature", Table({"sensor": "nvme"}), "w")
+    assert nvme.read(0.0)[0] == 38.5
+    ccd = sources.create("temperature", Table({"sensor": "k10temp",
+                                               "sensor_label": "tccd1"}), "w")
+    assert ccd.read(0.0)[0] == 55.0
+    zone = sources.create("temperature", Table({"sensor": "acpitz"}), "w")
+    assert zone.read(0.0)[0] == 27.8
+
+
+def test_temperature_missing_sensor(tmp_path, monkeypatch) -> None:
+    _fake_sysfs(tmp_path, monkeypatch)
+    with pytest.raises(sources.SourceError,
+                       match="no temperature sensor amdgpu; found: nvme/Composite, "
+                             "k10temp/Tctl, k10temp/Tccd1, acpitz/thermal_zone0"):
+        sources.create("temperature", Table({"sensor": "amdgpu"}), "gauge#1")
+
+
+def test_temperature_on_a_gauge(tmp_path, monkeypatch) -> None:
+    _fake_sysfs(tmp_path, monkeypatch)
+    gauge = lookup("gauge")
+    table = Table({"source": "temperature", "min": 20, "max": 100,
+                   "format": "{celsius:.0f}°C"}, "widget.gauge[0]")
+    spec = WidgetSpec("gauge#1", "gauge", Rect(0, 0, 160, 160), None, table)
+    widget = gauge(spec, make_theme())
+    assert widget.render(0.0)
+    widget.close()

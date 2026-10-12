@@ -32,13 +32,19 @@ from PIL import ImageDraw
 
 from .. import gradient, sources
 from ..schema import (
-    Schema, choice, color, colors, font, integer, number, source, string,
+    Auto, Schema, choice, color, colors, font, integer, number, source, string,
     text_format,
 )
 from .base import PluginError, Widget, WidgetSpec, register
 
 if TYPE_CHECKING:
     from ..theme import Theme
+
+def _range(values) -> tuple[float, float]:
+    """The source's own usual range: 0..1 for fractions, degrees for a
+    temperature."""
+    return getattr(values.get("source"), "range", (0.0, 1.0))
+
 
 # Classic gauge: a gap at the bottom, sweeping clockwise from lower left.
 START, SPAN = 135.0, 270.0
@@ -59,8 +65,10 @@ class GaugeWidget(Widget):
         color("track", "#0a3c46", group="Arc",
               doc="The unfilled part of the arc"),
         integer("thickness", 12, 1, 128, group="Arc"),
-        number("min", 0.0, group="Data", doc="Value drawn as empty"),
-        number("max", 1.0, group="Data", doc="Value drawn as full"),
+        number("min", Auto(lambda v, spec: _range(v)[0], "the source's usual low"),
+               group="Data", doc="Value drawn as empty"),
+        number("max", Auto(lambda v, spec: _range(v)[1], "the source's usual high"),
+               group="Data", doc="Value drawn as full"),
         string("label", None, group="Text", doc="Caption above the middle"),
         text_format("format", None, group="Data",
                     doc="Value text below the middle, filled from the "

@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from .schema import Schema, string
@@ -48,6 +49,9 @@ class Source:
     fields: tuple[str, ...] = ()
     # One line on what it reads, for editors.
     summary = ""
+    # The range a widget draws `value` against unless the theme sets its
+    # own min and max. Fractions by default; a temperature is degrees.
+    range: tuple[float, float] = (0.0, 1.0)
 
     def __init__(self, options: Table, widget: str) -> None:
         self.schema.read(options)
@@ -220,6 +224,138 @@ class NetworkSource(Source):
         }
 
 
+class TemperatureSource(Source):
+    """A temperature sensor, in degrees Celsius.
+
+    Read from what the kernel already exposes: hwmon chips first (CPU
+    packages, GPUs, NVMe drives), then thermal zones, so no extra
+    program is needed. With no `sensor` named it picks the CPU -- the
+    first of the usual CPU drivers present -- which is what "the
+    temperature" usually means.
+
+    `value` is in degrees, not 0..1: what counts as hot is a display
+    decision, so a gauge or graph sets its own min and max (20 and 100,
+    say) the way a graph does for network rates.
+    """
+
+    kind = SCALAR
+    schema = Schema(
+        string("sensor", None, group="Data",
+               doc="Sensor chip, e.g. k10temp, coretemp, amdgpu, nvme; "
+                   "empty picks the CPU"),
+        string("sensor_label", None, group="Data",
+               doc="One reading of that chip, e.g. Tctl or 'Package id 0'; "
+                   "empty takes its main one"),
+    )
+    fields = ("value", "celsius", "fahrenheit", "sensor", "sensor_label")
+    range = (20.0, 100.0)
+    summary = "A temperature sensor in degrees C (CPU unless told otherwise)"
+
+    def __init__(self, options: Table, widget: str) -> None:
+        o = self.schema.read(options)
+        found = _temperature_file(o.sensor, o.sensor_label)
+        self.unavailable: str | None = None
+        if found is None:
+            if o.sensor is None and o.sensor_label is None:
+                wanted = "no CPU temperature sensor"
+            else:
+                wanted = "no temperature sensor " + " ".join(
+                    part for part in (o.sensor, repr(o.sensor_label) if o.sensor_label else None)
+                    if part)
+            known = ", ".join(
+                f"{chip}/{label}" for chip, label, _ in _temperature_sensors()
+            ) or "none"
+            message = f"widget {widget!r}: {wanted}; found: {known}"
+            if wrap is None:
+                raise SourceError(message)
+            # A tool standing in for readings (an editor on a machine
+            # without this sensor) can still draw it; it says why.
+            self.unavailable = message
+            self._file, self._chip, self._label = None, o.sensor or "", o.sensor_label or ""
+            return
+        self._chip, self._label, self._file = found
+        self.read(0.0)  # fail now, not on the first frame, if unreadable
+
+    def read(self, now: float) -> tuple[float, dict[str, Any]]:
+        if self._file is None:
+            celsius = 0.0
+        else:
+            with open(self._file, "rb") as handle:
+                celsius = int(handle.read().strip()) / 1000
+        return celsius, temperature_fields(celsius, self._chip, self._label)
+
+
+def temperature_fields(celsius: float, chip: str, label: str) -> dict[str, Any]:
+    return {
+        "value": celsius,
+        "celsius": celsius,
+        "fahrenheit": celsius * 9 / 5 + 32,
+        "sensor": chip,
+        "sensor_label": label,
+    }
+
+
+# Where the kernel publishes sensors; module-level so tests can point
+# them at a fake tree.
+HWMON = Path("/sys/class/hwmon")
+THERMAL = Path("/sys/class/thermal")
+
+# The usual CPU drivers, in the order to prefer them, and the reading of
+# each that means "the package" rather than one core.
+_CPU_CHIPS = ("k10temp", "zenpower", "coretemp", "cpu_thermal", "x86_pkg_temp",
+              "acpitz")
+_MAIN_LABELS = ("Tctl", "Tdie", "Package id 0", "edge", "Composite")
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def _temperature_sensors() -> list[tuple[str, str, Path]]:
+    """(chip, label, file) for every temperature reading present."""
+    out: list[tuple[str, str, Path]] = []
+    try:
+        chips = sorted(HWMON.glob("hwmon*"), key=lambda p: (len(p.name), p.name))
+    except OSError:
+        chips = []
+    for chip in chips:
+        name = _read_text(chip / "name") or chip.name
+        for reading in sorted(chip.glob("temp*_input"),
+                              key=lambda p: (len(p.name), p.name)):
+            label = _read_text(reading.with_name(reading.name.replace("_input", "_label")))
+            out.append((name, label or reading.name.removesuffix("_input"), reading))
+    try:
+        zones = sorted(THERMAL.glob("thermal_zone*"), key=lambda p: (len(p.name), p.name))
+    except OSError:
+        zones = []
+    for zone in zones:
+        if (zone / "temp").exists():
+            out.append((_read_text(zone / "type") or zone.name, zone.name, zone / "temp"))
+    return out
+
+
+def _temperature_file(sensor: str | None, label: str | None) -> tuple[str, str, Path] | None:
+    """The reading a theme asked for, or the CPU's if it named none."""
+    found = _temperature_sensors()
+    if sensor is not None:
+        found = [f for f in found if f[0].lower() == sensor.lower()]
+    else:
+        ranked = sorted(
+            (f for f in found if f[0] in _CPU_CHIPS),
+            key=lambda f: _CPU_CHIPS.index(f[0]),
+        )
+        found = ranked or found
+    if label is not None:
+        found = [f for f in found if f[1].lower() == label.lower()]
+    if not found:
+        return None
+    main = [f for f in found if f[1] in _MAIN_LABELS]
+    return (main or found)[0]
+
+
 def _net_interfaces() -> set[str]:
     with open("/proc/net/dev", "rb") as handle:
         lines = handle.read().decode().splitlines()[2:]
@@ -267,6 +403,7 @@ _REGISTRY: dict[str, type[Source]] = {
     "memory": MemorySource,
     "disk": DiskSource,
     "network": NetworkSource,
+    "temperature": TemperatureSource,
 }
 
 

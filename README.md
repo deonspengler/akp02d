@@ -76,7 +76,7 @@ y = 90
 width = 302
 height = 46
 fps = 1
-source = "time"                 # time | cpu | memory | disk | network
+source = "time"                 # time | cpu | memory | disk | network | temperature
 format = "{value:%H:%M:%S}"
 size = 56
 color = "#11e3f5"
@@ -116,6 +116,24 @@ bars = 48
 peaks = true
 gradient = ["#fd44dd", "#11e3f5"]
 smoothing = 30                  # cava's noise_reduction, 0-100
+```
+
+`temperature` reads the kernel's own sensors (hwmon, then thermal
+zones), so it needs nothing installed. With no `sensor` it picks the
+CPU; `sensor = "amdgpu"` or `"nvme"` picks another chip, and
+`sensor_label = "Tccd1"` one reading of it. Its fields are `celsius`
+and `fahrenheit`, and a gauge or graph on it ranges 20-100 °C unless
+the widget sets its own `min` and `max`:
+
+```toml
+[[widget.gauge]]
+x = 56
+y = 190
+width = 160
+height = 160
+source = "temperature"
+label = "CPU"
+format = "{celsius:.0f}°C"
 ```
 
 `fps` is a rate, not a period: `1` is once a second, `30` every frame.

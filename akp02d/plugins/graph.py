@@ -91,13 +91,15 @@ class GraphWidget(Widget):
                Auto(lambda v, spec: "log" if _pair(v) else "linear",
                     "log for a pair, else linear"),
                group="Data"),
-        number("min", Auto(lambda v, spec: 1024.0 if v.scale == "log" else 0.0,
-                           "1024 on a log scale, else 0"),
+        number("min", Auto(lambda v, spec: 1024.0 if v.scale == "log"
+                           else getattr(v.get("source"), "range", (0.0, 1.0))[0],
+                           "1024 on a log scale, else the source's usual low"),
                group="Data",
                doc="Bottom of the range; on a log scale, what counts as "
                    "nothing"),
-        number("max", Auto(lambda v, spec: 125_000_000.0 if _pair(v) else 1.0,
-                           "a gigabit/s for a pair, else 1"),
+        number("max", Auto(lambda v, spec: 125_000_000.0 if _pair(v)
+                           else getattr(v.get("source"), "range", (0.0, 1.0))[1],
+                           "a gigabit/s for a pair, else the source's usual high"),
                group="Data", doc="Top of the range"),
     )
 
