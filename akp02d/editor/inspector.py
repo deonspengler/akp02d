@@ -14,8 +14,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal as Signal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import (
     QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QToolButton,
     QVBoxLayout, QWidget,
@@ -581,7 +581,10 @@ class Inspector(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
         row.addWidget(control, 1)
-        undo = QToolButton()
+        # Parented from the start. A widget with no parent that is made
+        # visible becomes a window of its own, if only until it is put in
+        # a layout -- a flash a tiling window manager tiles.
+        undo = QToolButton(holder)
         undo.setObjectName("flat")
         undo.setText("×")
         undo.setToolTip("Remove from the theme, so the default applies")
@@ -591,11 +594,11 @@ class Inspector(QWidget):
         # the same. Out of the Tab order, so Tab goes field to field.
         undo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         undo.clicked.connect(reset)
-        undo.setVisible(explicit and not required)
         sizer = undo.sizePolicy()
         sizer.setRetainSizeWhenHidden(True)
         undo.setSizePolicy(sizer)
         row.addWidget(undo)
+        undo.setVisible(explicit and not required)
         form.addRow(name, holder)
 
 

@@ -25,7 +25,7 @@ logged and the panel keeps what it had. `--no-watch` turns this off.
 
 ## Theme editor
 
-    pip install 'akp02d[editor]'   # or your distribution's PyQt6 (python-pyqt6)
+    pip install 'akp02d[editor]'   # or your distribution's pyside6
     akp02d-edit                    # the configured theme
     akp02d-edit mytheme            # a theme by name, or a directory
 

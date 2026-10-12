@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from PIL import ImageColor
-from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal as Signal
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
+from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QHBoxLayout, QLineEdit, QMenu,
     QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
 )
@@ -178,8 +178,9 @@ class GradientField(QWidget):
             item = self.row.takeAt(0)
             old = item.widget()
             if old is not None:
+                # Hidden and deleted where it is: detaching it first would
+                # make it a window of its own for a moment.
                 old.hide()
-                old.setParent(None)
                 old.deleteLater()
         self.bar.stops = [rgb(s) or QColor("#000000") for s in self._stops]
         self.bar.update()

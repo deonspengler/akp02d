@@ -31,21 +31,20 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING,
                         format="%(levelname)s %(name)s: %(message)s")
     try:
-        from PyQt6.QtWidgets import QApplication, QMessageBox
+        from PySide6.QtWidgets import QApplication, QMessageBox
     except ImportError as exc:
         # Say what failed: "not installed" and "installed for another
         # Python" or "a library it needs is missing" need different fixes.
-        print(f"akp02d-edit could not load PyQt6: {exc}\n"
+        print(f"akp02d-edit could not load PySide6: {exc}\n"
               f"  python: {sys.executable} ({sys.version.split()[0]})\n"
               "Install it with pip install 'akp02d[editor]' or your "
-              "distribution's PyQt6 package (python-pyqt6 on Arch) -- for "
+              "distribution's PySide6 package (pyside6 on Arch) -- for "
               "this Python.", file=sys.stderr)
         return 1
 
-    # PyQt6 aborts the whole program on an exception escaping a Qt
-    # callback, unless an excepthook is installed. A bug in one handler
-    # should cost that action, not the theme being edited: log it and
-    # carry on, as an unsaved theme is worth more than a clean exit.
+    # A bug in one handler should cost that action, not the theme being
+    # edited: log an exception escaping a Qt callback and carry on, as an
+    # unsaved theme is worth more than a clean exit.
     def report(kind, value, tb) -> None:
         logging.getLogger("akp02d.editor").error(
             "unexpected error", exc_info=(kind, value, tb))

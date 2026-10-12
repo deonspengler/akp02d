@@ -16,12 +16,12 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
-from PyQt6.QtCore import QSize, Qt, QTimer
-from PyQt6.QtGui import (
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import (
     QAction, QCloseEvent, QColor, QImage, QKeySequence, QUndoCommand, QUndoStack,
 )
-from PyQt6.QtWidgets import (
-    QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
+from PySide6.QtWidgets import (
+    QApplication, QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPushButton, QSizePolicy, QSplitter, QToolBar,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -713,6 +713,10 @@ class EditorWindow(QMainWindow):
         self.undo.blockSignals(True)
         self.engine.close()
         event.accept()
+        # Closing the editor ends it. Qt would otherwise keep running while
+        # any other window it thinks is visible remains -- one a window
+        # manager has kept a tile for, say -- and the tile with it.
+        QApplication.instance().quit()
 
 
 def controls_number(value: Any) -> str:
