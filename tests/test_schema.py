@@ -41,10 +41,15 @@ def make_theme() -> Theme:
 
 
 SAMPLES = {
-    "label": [{"source": "cpu", "format": "{percent:.0f}"}, {"format": "x"},
+    "label": [{"source": "cpu", "format": "{percent:.0f}"}, {"format": "x",
+               "gradient": ["#000000", "#ffffff"], "outline": "#000000",
+               "shadow": "#000000"},
               {"source": "time", "format": "{value:%H}"}],
     "gauge": [{"source": "memory"}, {"source": "disk"}],
     "graph": [{"source": "cpu", "fill": "#123456"}, {"source": "network"}],
+    "bar": [{"source": "cpu", "label": "CPU", "format": "{percent:.0f}%"},
+            {"source": "memory", "segments": 10, "text": "inside", "format": "x",
+             "direction": "vertical", "radius": 4}],
     "spectrum": [{"type": t, "peaks": True, "origin": "#ff0000", "channels": "mono",
                   "smoothing": 10} for t in ("bars", "mirrored", "segmented", "radial")],
 }

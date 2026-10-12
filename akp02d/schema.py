@@ -114,6 +114,12 @@ class Option:
     group: str = "General"
     doc: str = ""
     when: Callable[[Values], bool] | None = None
+    # For tools: the values this machine offers for the option, as
+    # (value, description) pairs -- the sensors present, the mounted
+    # filesystems. Given the other options, so one can narrow another.
+    # Suggestions, not limits: a theme may name what only the panel's
+    # own machine has.
+    suggest: Callable[[Values], list[tuple[str, str]]] | None = None
 
     @property
     def required(self) -> bool:
@@ -123,6 +129,14 @@ class Option:
         if isinstance(self.default, Auto):
             return self.default.compute(values, spec)
         return self.default
+
+    def suggestions(self, values: Values) -> list[tuple[str, str]]:
+        if self.suggest is None:
+            return []
+        try:
+            return list(self.suggest(values))
+        except Exception:  # a tool's convenience, never fatal
+            return []
 
     def applies(self, values: Values) -> bool:
         """Whether this option does anything, given the others."""
@@ -304,8 +318,8 @@ def color(key: str, default: Any = None, **kw: Any) -> Option:
     return Option(key, COLOR, default, **kw)
 
 
-def colors(key: str, default: tuple[str, ...], **kw: Any) -> Option:
-    return Option(key, COLORS, tuple(default), **kw)
+def colors(key: str, default: tuple[str, ...] | None, **kw: Any) -> Option:
+    return Option(key, COLORS, tuple(default) if default is not None else None, **kw)
 
 
 def source(key: str = "source", accepts: tuple[str, ...] = (),

@@ -454,6 +454,60 @@ class FontField(QComboBox):
             self.changed.emit(text)
 
 
+class SuggestField(QComboBox):
+    """A string, typed or picked from what this machine offers.
+
+    Each suggestion shows a description (a sensor's reading, a disk's
+    size) but stores its plain value. Typing anything else is allowed:
+    a theme may name a sensor or mount only the panel's machine has.
+    """
+
+    changed = Signal(object)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        _narrow(self)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._value: str | None = None
+        self.lineEdit().editingFinished.connect(self._commit)
+        self.activated.connect(self._picked)
+
+    def set_value(self, value: Any, suggestions: Sequence[tuple[str, str]],
+                  placeholder: str = "") -> None:
+        self.blockSignals(True)
+        self.clear()
+        self.addItem("", None)
+        for item, description in suggestions:
+            self.addItem(description, item)
+        self._value = value if isinstance(value, str) else None
+        self.setEditText(self._value or "")
+        self.lineEdit().setPlaceholderText(placeholder)
+        if not suggestions:
+            self.setToolTip("Nothing found on this machine; type a value")
+        self.blockSignals(False)
+
+    def _picked(self, index: int) -> None:
+        value = self.itemData(index)
+        # Show the plain value in the field, not the description.
+        self.setEditText(value or "")
+        self._set(value)
+
+    def _commit(self) -> None:
+        text = self.currentText().strip()
+        # A typed (or still-shown) description maps back to its value.
+        for index in range(1, self.count()):
+            if self.itemText(index) == text:
+                text = self.itemData(index)
+                break
+        self._set(text or None)
+
+    def _set(self, value: str | None) -> None:
+        if value != self._value:
+            self._value = value
+            self.changed.emit(value)
+
+
 _SYSTEM_FONTS: list[str] | None = None
 
 

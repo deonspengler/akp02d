@@ -46,9 +46,11 @@ THEME = "theme"   # selection sentinel: the [theme] table
 
 DEFAULT_SIZES = {
     "label": (240, 48), "gauge": (160, 160), "graph": (320, 120), "spectrum": (320, 200),
+    "bar": (320, 48),
 }
 NEW_OPTIONS: dict[str, dict[str, Any]] = {
     "label": {"format": "New label", "size": 32},
+    "bar": {"label": "CPU", "format": "{percent:.0f}%"},
 }
 
 PACKAGE_DIR = Path(akp02d.__file__).resolve().parent

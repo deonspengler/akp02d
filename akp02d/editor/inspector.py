@@ -480,6 +480,12 @@ class Inspector(QWidget):
                 sample.setProperty("fields", ", ".join(source_cls.fields))
                 self._sample(sample, slot, field.text())
             control = holder
+        elif kind == STRING and option.suggest is not None:
+            field = controls.SuggestField()
+            field.set_value(value, option.suggestions(values),
+                            "" if label == "none" else label)
+            field.changed.connect(emit)
+            control = field
         elif kind in (STRING,):
             field = controls.TextField()
             field.set_value(value, "" if label == "none" else label)

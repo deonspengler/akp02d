@@ -148,6 +148,9 @@ def plugin_icon(plugin: str, colour: str = MUTED, size: int = 16) -> QIcon:
     elif plugin == "spectrum":
         for x, top in ((3, 8), (6, 4), (9, 6), (12, 9)):
             path.moveTo(x, 13); path.lineTo(x, top)
+    elif plugin == "bar":
+        path.addRoundedRect(QRectF(2, 6, 12, 4.5), 2, 2)
+        path.moveTo(4, 8.25); path.lineTo(9, 8.25)
     elif plugin == "theme":
         path.addRoundedRect(QRectF(2, 3, 12, 10), 1.5, 1.5)
         path.addEllipse(QPointF(6, 6.5), 1.3, 1.3)

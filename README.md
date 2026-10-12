@@ -42,6 +42,9 @@ text placement are the pixels the daemon will send.
 * The settings panel is built from each plugin's declared options, so
   every option is there with its default shown, and options that do
   nothing in the current setup (`inner` on a bar spectrum) are hidden.
+  Options that name something on the machine -- a temperature sensor
+  and its reading, a disk's mount point, a network interface -- are
+  dropdowns of what this machine has, and still accept anything typed.
 * The preview's readings are simulated -- plausible moving CPU, memory,
   disk and network data, and made-up music for spectrums -- so graphs
   scroll and gauges move on any machine, `cava` or not. The clock is
@@ -76,7 +79,7 @@ y = 90
 width = 302
 height = 46
 fps = 1
-source = "time"                 # time | cpu | memory | disk | network | temperature
+source = "time"                 # see Sources below
 format = "{value:%H:%M:%S}"
 size = 56
 color = "#11e3f5"
@@ -144,6 +147,65 @@ redraws.
 handles datetimes, so `"{value:%H:%M}"` and `"{percent:.0f}%"` compose
 in one string, and a label with no source draws its format literally --
 which is why static text needs no plugin of its own.
+
+### Sources
+
+| source | kind | fields for `format` |
+|---|---|---|
+| `time` | a moment | `value` (strftime: `{value:%H:%M}`) |
+| `cpu` | 0..1 | `value`, `percent` |
+| `memory` | 0..1 | `value`, `percent`, `used_gb`, `total_gb`, ... |
+| `disk` | 0..1 | `value`, `percent`, `used_gb`, `free_gb`, `total_gb`, ... (`path`) |
+| `network` | up/down pair | `up`, `down`, `up_kb`, `down_mb`, ... (`interface`) |
+| `temperature` | degrees | `celsius`, `fahrenheit`, `sensor`, `sensor_label` |
+| `hostname` | text | `value`, `short` |
+| `uptime` | text | `value` (`3d 4h 12m`), `days`, `hours`, `minutes`, `total_hours` |
+| `kernel` | text | `value` (release), `version`, `machine` |
+| `ip` | text | `value` (IPv4 of the default route, or of `interface`) |
+
+Gauges, bars and graphs draw the numeric kinds; labels show anything.
+
+### Label effects
+
+```toml
+[[widget.label]]
+format = "{value:%H:%M:%S}"
+source = "time"
+gradient = ["#fd44dd", "#11e3f5"]   # instead of `color`
+gradient_direction = "vertical"     # or "horizontal"
+outline = "#000000"                 # a line round each letter
+outline_width = 2
+shadow = "#000000"                  # drop shadow ...
+shadow_x = 2
+shadow_y = 2
+shadow_blur = 3
+shadow_alpha = 0.6
+```
+
+A shadow with `shadow_x = 0`, `shadow_y = 0`, a bright colour and a
+larger blur is a glow. Effects stay inside the widget's box, so give a
+big blur or offset some room.
+
+### Bar
+
+```toml
+[[widget.bar]]
+x = 56
+y = 400
+width = 344
+height = 48
+source = "memory"
+label = "MEM"
+format = "{percent:.0f}%"
+gradient = ["#22dd66", "#ffd022", "#ff3b30"]
+radius = 6               # rounded ends
+segments = 0             # e.g. 20 for an LED-meter look
+text = "above"           # or "inside"
+```
+
+Horizontal for a wide box, vertical (filling upward) for a tall one,
+unless `direction` says. `color_by = "level"` paints the whole fill one
+colour by how full it is instead of fixing the gradient along it.
 
 Any widget may lay its own `background` colour over the wallpaper at
 `alpha` opacity. Text is centred on its cap-height band, so digits and

@@ -36,9 +36,7 @@ import locale as locale_module
 import time
 from typing import TYPE_CHECKING
 
-from PIL import ImageDraw
-
-from .. import sources
+from .. import sources, textfx
 from ..schema import Schema, color, font, integer, source, string, text_format
 from .base import PluginError, Widget, WidgetSpec, register
 
@@ -68,10 +66,11 @@ class LabelWidget(Widget):
         font(group="Text", doc="Theme-relative font file or a system "
                                "family; empty uses the theme's font"),
         integer("size", 24, 1, 512, group="Text", doc="Font size in pixels"),
+        *textfx.options(),
     )
 
-    __slots__ = ("_anchor_xy", "_draw", "_fill", "_font", "_format", "_last",
-                 "_source")
+    __slots__ = ("_anchor_xy", "_band", "_font", "_format", "_last", "_source",
+                 "_style")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
         super().__init__(spec, theme)
@@ -79,7 +78,7 @@ class LabelWidget(Widget):
         self._source = o.source
         self._format = o.format
         _set_locale(o.locale, spec.id)
-        self._fill = o.color
+        self._style = textfx.TextStyle.read(o, o.color)
         # Resolved once: building a font per frame would cost more than
         # everything else this widget does put together.
         self._font = theme.font(o.font, o.size)
@@ -92,7 +91,9 @@ class LabelWidget(Widget):
         # "ma" anchors on the ascender line, which is `ascent` above the
         # baseline -- Pillow cannot anchor on the baseline directly.
         self._anchor_xy = (width // 2, baseline - ascent)
-        self._draw = ImageDraw.Draw(self.surface)
+        # Where a vertical gradient runs: the cap band, so it sits on the
+        # letters whatever the text is.
+        self._band = (baseline - (cap[3] - cap[1]), baseline)
         self._last: str | None = None
         # Format against a real sample now, so a format that does not fit
         # its source fails at load rather than on the first frame.
@@ -117,9 +118,8 @@ class LabelWidget(Widget):
             return False
         self._last = text
         self.clear()
-        self._draw.text(
-            self._anchor_xy, text, font=self._font, fill=self._fill, anchor="ma"
-        )
+        self._style.draw(self.surface, self._anchor_xy, text, self._font, "ma",
+                         self._band)
         return True
 
 

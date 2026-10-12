@@ -17,6 +17,7 @@ None and put the useful thing in fields.
 from __future__ import annotations
 
 import os
+import socket
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -144,7 +145,8 @@ class DiskSource(Source):
     schema = Schema(
         string("path", "/", group="Data",
                doc="Any path on the filesystem to measure: a mount point or "
-                   "anything under it"),
+                   "anything under it",
+               suggest=lambda values: mount_choices()),
     )
     fields = ("value", "percent", "used", "free", "total", "used_gb",
               "free_gb", "total_gb")
@@ -189,7 +191,8 @@ class NetworkSource(Source):
     schema = Schema(
         string("interface", None, group="Data",
                doc="One interface, e.g. eno1; leave empty to sum every "
-                   "interface except loopback"),
+                   "interface except loopback",
+               suggest=lambda values: interface_choices()),
     )
     fields = ("up", "down", "up_kb", "down_kb", "up_mb", "down_mb")
     summary = "Bytes per second sent (up) and received (down)"
@@ -242,10 +245,12 @@ class TemperatureSource(Source):
     schema = Schema(
         string("sensor", None, group="Data",
                doc="Sensor chip, e.g. k10temp, coretemp, amdgpu, nvme; "
-                   "empty picks the CPU"),
+                   "empty picks the CPU",
+               suggest=lambda values: sensor_choices()),
         string("sensor_label", None, group="Data",
                doc="One reading of that chip, e.g. Tctl or 'Package id 0'; "
-                   "empty takes its main one"),
+                   "empty takes its main one",
+               suggest=lambda values: sensor_label_choices(values.get("sensor"))),
     )
     fields = ("value", "celsius", "fahrenheit", "sensor", "sensor_label")
     range = (20.0, 100.0)
@@ -283,6 +288,132 @@ class TemperatureSource(Source):
             with open(self._file, "rb") as handle:
                 celsius = int(handle.read().strip()) / 1000
         return celsius, temperature_fields(celsius, self._chip, self._label)
+
+
+class HostnameSource(Source):
+    """This machine's name."""
+
+    kind = TEXT
+    fields = ("value", "short")
+    summary = "This machine's name; {short} drops the domain"
+
+    def read(self, now: float) -> tuple[None, dict[str, Any]]:
+        name = socket.gethostname()
+        return None, {"value": name, "short": name.split(".")[0]}
+
+
+class UptimeSource(Source):
+    """How long since boot.
+
+    `value` is the compact form people write -- "3d 4h 12m", "4h 12m",
+    "12m" -- and the parts are there for any other layout.
+    """
+
+    kind = TEXT
+    fields = ("value", "days", "hours", "minutes", "seconds", "total_hours")
+    summary = "Time since boot, e.g. 3d 4h 12m"
+
+    def read(self, now: float) -> tuple[None, dict[str, Any]]:
+        with open("/proc/uptime", "rb") as handle:
+            seconds = int(float(handle.read().split()[0]))
+        return None, uptime_fields(seconds)
+
+
+def uptime_fields(seconds: int) -> dict[str, Any]:
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes = rest // 60
+    parts = ([f"{days}d"] if days else []) + ([f"{hours}h"] if days or hours else [])
+    return {
+        "value": " ".join(parts + [f"{minutes}m"]),
+        "days": days,
+        "hours": hours,
+        "minutes": minutes,
+        "seconds": seconds,
+        "total_hours": seconds // 3600,
+    }
+
+
+class KernelSource(Source):
+    """The running kernel."""
+
+    kind = TEXT
+    fields = ("value", "release", "version", "machine", "system")
+    summary = "The running kernel's release, e.g. 6.11.2-arch1-1"
+
+    def read(self, now: float) -> tuple[None, dict[str, Any]]:
+        info = os.uname()
+        return None, {
+            "value": info.release,
+            "release": info.release,
+            "version": info.version,
+            "machine": info.machine,
+            "system": info.sysname,
+        }
+
+
+class IpSource(Source):
+    """This machine's local IPv4 address.
+
+    With no `interface`, the address of the one that carries the default
+    route -- the address other machines on the network reach this one
+    at. Found by asking the kernel which address it would send from; no
+    packet is sent. With no network, the value is `no_address`.
+    """
+
+    kind = TEXT
+    schema = Schema(
+        string("interface", None, group="Data",
+               doc="One interface, e.g. eno1; empty for the one with the "
+                   "default route",
+               suggest=lambda values: interface_choices()),
+        string("no_address", "offline", group="Data",
+               doc="What to show when there is no address"),
+    )
+    fields = ("value", "interface")
+    summary = "Local IPv4 address, of the default route or a named interface"
+
+    def __init__(self, options: Table, widget: str) -> None:
+        o = self.schema.read(options)
+        self._interface = o.interface
+        self._missing = o.no_address
+        if self._interface is not None:
+            known = _net_interfaces()
+            if self._interface not in known:
+                raise SourceError(
+                    f"widget {widget!r}: no interface {self._interface!r}; found: "
+                    f"{', '.join(sorted(known)) or 'none'}")
+
+    def read(self, now: float) -> tuple[None, dict[str, Any]]:
+        address = (_interface_address(self._interface) if self._interface
+                   else _default_address())
+        return None, {"value": address or self._missing,
+                      "interface": self._interface or ""}
+
+
+def _default_address() -> str | None:
+    """The source address for the default route, without sending."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("192.0.2.1", 9))  # TEST-NET-1: never routed anywhere real
+            address = probe.getsockname()[0]
+    except OSError:
+        return None
+    return None if address.startswith("0.") else address
+
+
+def _interface_address(name: str) -> str | None:
+    """An interface's IPv4 address, via the SIOCGIFADDR ioctl."""
+    import fcntl
+    import struct
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            packed = fcntl.ioctl(probe.fileno(), 0x8915,  # SIOCGIFADDR
+                                 struct.pack("256s", name.encode()[:15]))
+    except OSError:
+        return None
+    return socket.inet_ntoa(packed[20:24])
 
 
 def temperature_fields(celsius: float, chip: str, label: str) -> dict[str, Any]:
@@ -356,6 +487,85 @@ def _temperature_file(sensor: str | None, label: str | None) -> tuple[str, str, 
     return (main or found)[0]
 
 
+# -- what this machine offers, for tools to suggest --
+
+
+def sensor_choices() -> list[tuple[str, str]]:
+    """Each temperature chip once, with its main reading now."""
+    out: dict[str, str] = {}
+    for chip, label, file in _temperature_sensors():
+        if chip in out:
+            continue
+        main = _temperature_file(chip, None)
+        reading = _celsius(main[2]) if main else None
+        out[chip] = f"{chip}  ({reading:.0f} °C)" if reading is not None else chip
+    return list(out.items())
+
+
+def sensor_label_choices(sensor: str | None) -> list[tuple[str, str]]:
+    """The readings of one chip -- the CPU's when none is named."""
+    chosen = _temperature_file(sensor, None)
+    if chosen is None:
+        return []
+    out = []
+    for chip, label, file in _temperature_sensors():
+        if chip == chosen[0]:
+            reading = _celsius(file)
+            out.append((label, f"{label}  ({reading:.0f} °C)" if reading is not None else label))
+    return out
+
+
+def _celsius(file: Path) -> float | None:
+    try:
+        return int(file.read_text().strip()) / 1000
+    except (OSError, ValueError):
+        return None
+
+
+# Filesystems that hold files someone would want to watch fill up, as
+# opposed to the kernel's own (proc, sysfs, cgroup ...) and RAM ones.
+_DISK_TYPES = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "zfs", "vfat",
+               "exfat", "ntfs", "ntfs3", "fuseblk", "jfs", "reiserfs", "bcachefs",
+               "nfs", "nfs4", "cifs", "smb3"}
+
+
+def mount_choices() -> list[tuple[str, str]]:
+    """Mounted filesystems worth a disk widget, with type and size."""
+    out: dict[str, str] = {}
+    try:
+        with open("/proc/mounts", encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 3 or parts[2] not in _DISK_TYPES:
+            continue
+        # /proc/mounts escapes spaces and the like as octal.
+        mount = parts[1].encode().decode("unicode_escape")
+        if mount in out:
+            continue
+        try:
+            info = os.statvfs(mount)
+        except OSError:
+            continue
+        total = info.f_blocks * info.f_frsize / 2**30
+        shown = f"{total:.1f}" if total < 10 else f"{total:.0f}"
+        out[mount] = f"{mount}  ({parts[2]}, {shown} G)"
+    if "/" not in out:
+        out = {"/": "/", **out}
+    return sorted(out.items(), key=lambda item: (item[0] != "/", item[0]))
+
+
+def interface_choices() -> list[tuple[str, str]]:
+    """Network interfaces other than loopback."""
+    try:
+        names = _net_interfaces()
+    except OSError:
+        return []
+    return [(name, name) for name in sorted(names - {"lo"})]
+
+
 def _net_interfaces() -> set[str]:
     with open("/proc/net/dev", "rb") as handle:
         lines = handle.read().decode().splitlines()[2:]
@@ -404,6 +614,10 @@ _REGISTRY: dict[str, type[Source]] = {
     "disk": DiskSource,
     "network": NetworkSource,
     "temperature": TemperatureSource,
+    "hostname": HostnameSource,
+    "uptime": UptimeSource,
+    "kernel": KernelSource,
+    "ip": IpSource,
 }
 
 
