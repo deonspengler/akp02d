@@ -196,9 +196,11 @@ class App:
         widgets = tuple(built)
         for widget in widgets:
             if widget.period < period:
-                # A rate the widget picked itself (an animation's) is
-                # simply capped; only one the theme asked for is news.
-                if not getattr(widget, "fps_auto", False):
+                # A rate the widget picked itself (an animation's, a
+                # gliding needle's) is simply capped; only one the theme
+                # asked for is news.
+                if not (getattr(widget, "fps_auto", False)
+                        or getattr(widget, "animating", False)):
                     log.warning(
                         "%s asks for %g fps but the loop runs at %g; it will "
                         "update every frame",

@@ -250,3 +250,42 @@ def test_add_image_then_pick_where_pictures_come_from(app, tmp_path: Path, monke
     finally:
         window.undo.setClean()
         window.close()
+
+
+def test_gauge_style_and_zones(app, tmp_path: Path) -> None:
+    """Switching a gauge's style swaps its options; zones are added and
+    removed as rows, proposed from the reading's range."""
+    theme = tmp_path / "theme"
+    shutil.copytree(Path(akp02d.__file__).parent / "themes" / "default", theme)
+    window = EditorWindow(ThemeDocument.open(theme), config.Config())
+    try:
+        window.show()
+        ref = Ref("gauge", 1)
+        window._set_selection(ref)
+        pump(app, 0.2)
+        find = lambda name: window.inspector.findChild(QtWidgets.QWidget, name)  # noqa: E731
+        assert find("opt.thickness") is not None and find("opt.face") is None
+        window._widget_edited(ref, "style", "dial")
+        pump(app, 0.3)
+        assert find("opt.thickness") is None and find("opt.face") is not None
+        assert window.engine.slots[2].widget is not None or any(
+            s.widget is not None for s in window.engine.slots if s.plugin == "gauge")
+
+        zones = window.inspector.findChild(controls.ZonesField, "opt.zones")
+        zones._add()
+        pump(app, 0.3)
+        assert window.document.entry(ref)["zones"] == [[0.8, 1, "#e63232"]]
+        zones = window.inspector.findChild(controls.ZonesField, "opt.zones")
+        zones._add()
+        pump(app, 0.3)
+        assert window.document.entry(ref)["zones"][1][:2] == [0.6, 0.8]
+        zones = window.inspector.findChild(controls.ZonesField, "opt.zones")
+        zones._remove(0)
+        zones._remove(0)
+        pump(app, 0.3)
+        assert "zones" not in window.document.entry(ref)
+        assert not [p for p in window.engine.problems() if p.widget == "gauge#1"
+                    and p.level == "error"]
+    finally:
+        window.undo.setClean()
+        window.close()

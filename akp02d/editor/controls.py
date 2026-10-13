@@ -22,7 +22,8 @@ from PIL import ImageColor
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QColorDialog, QComboBox, QHBoxLayout, QLineEdit, QMenu,
+    QCheckBox, QColorDialog, QComboBox, QHBoxLayout, QLabel, QLineEdit, QMenu,
+    QPushButton,
     QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -175,12 +176,14 @@ class GradientField(QWidget):
         outer.addLayout(self.row)
         self.edit: QLineEdit | None = None
         self._stops: list[str] = []
+        self._explicit = False
 
     @property
     def is_gradient(self) -> bool:
         return len(self._stops) > 1
 
     def set_value(self, value: Any, default: Sequence[str] | str | None = None) -> None:
+        self._explicit = bool(_stops(value))
         self._stops = _stops(value) or _stops(default)
         self._rebuild()
 
@@ -215,8 +218,9 @@ class GradientField(QWidget):
             self.row.addWidget(chip)
             self.edit = QLineEdit(self)
             self.edit.setMaximumWidth(110)
-            self.edit.setText(stop or "")
-            self.edit.setPlaceholderText("none")
+            # The default shows as a placeholder, as other fields show theirs.
+            self.edit.setText(stop or "" if self._explicit else "")
+            self.edit.setPlaceholderText(stop if stop and not self._explicit else "none")
             self.edit.setProperty("invalid", bool(stop) and rgb(stop) is None)
             self.edit.editingFinished.connect(self._typed)
             self.row.addWidget(self.edit)
@@ -236,7 +240,7 @@ class GradientField(QWidget):
     def _typed(self) -> None:
         assert self.edit is not None
         text = self.edit.text().strip()
-        current = self._stops[0] if self._stops else ""
+        current = self._stops[0] if self._stops and self._explicit else ""
         if text == current:
             return
         if not text:
@@ -268,6 +272,7 @@ class GradientField(QWidget):
         self._emit()
 
     def _emit(self) -> None:
+        self._explicit = True
         stops = list(self._stops)
         # Rebuilt after the signal's handlers run: the edit may be the
         # widget that sent us here.
@@ -281,6 +286,122 @@ def _stops(value: Any) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [str(v) for v in value]
     return []
+
+
+class ZonesField(QWidget):
+    """Ranges of the reading, each with a colour: from, to, colour, ×.
+
+    "Add zone" proposes the top fifth of the range in red -- the usual
+    first zone -- and later ones just below the lowest so far.
+    """
+
+    changed = Signal(object)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.rows = QVBoxLayout(self)
+        self.rows.setContentsMargins(0, 0, 0, 0)
+        self.rows.setSpacing(4)
+        self._zones: list[list[Any]] = []
+        self._range = (0.0, 1.0)
+
+    def set_value(self, value: Any, span: tuple[float, float] = (0.0, 1.0)) -> None:
+        self._range = span
+        self._zones = []
+        if isinstance(value, (list, tuple)):
+            for zone in value:
+                if isinstance(zone, (list, tuple)) and len(zone) == 3:
+                    self._zones.append(list(zone))
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        while self.rows.count():
+            item = self.rows.takeAt(0)
+            old = item.widget()
+            if old is not None:
+                old.hide()
+                old.deleteLater()
+        for index, (low, high, colour) in enumerate(self._zones):
+            row = QWidget(self)
+            line = QHBoxLayout(row)
+            line.setContentsMargins(0, 0, 0, 0)
+            line.setSpacing(4)
+            for position, number in ((0, low), (1, high)):
+                edit = QLineEdit(row)
+                edit.setFixedWidth(56)
+                edit.setText(_number_text(number) if isinstance(number, (int, float)) else "")
+                edit.setToolTip("from" if position == 0 else "to")
+                edit.editingFinished.connect(
+                    lambda e=edit, i=index, p=position: self._typed(i, p, e.text()))
+                line.addWidget(edit)
+                if position == 0:
+                    dash = QLabel("–", row)
+                    line.addWidget(dash)
+            chip = Swatch(row, 20)
+            chip.set_colour(rgb(colour) if isinstance(colour, str) else None)
+            chip.setToolTip(f"{colour} -- click to change")
+            chip.picked.connect(lambda c, i=index: self._set(i, 2, c))
+            line.addWidget(chip)
+            remove = QToolButton(row)
+            remove.setObjectName("flat")
+            remove.setText("×")
+            remove.setToolTip("Remove this zone")
+            remove.setStyleSheet(f"padding: 0; color: {style.FAINT}; font-size: 15px;")
+            remove.setFixedWidth(22)
+            remove.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            remove.clicked.connect(lambda _c=False, i=index: self._remove(i))
+            line.addWidget(remove)
+            line.addStretch(1)
+            self.rows.addWidget(row)
+        add = QPushButton("Add zone", self)
+        add.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        add.clicked.connect(self._add)
+        holder = QWidget(self)
+        line = QHBoxLayout(holder)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.addWidget(add)
+        line.addStretch(1)
+        self.rows.addWidget(holder)
+
+    def _typed(self, index: int, position: int, text: str) -> None:
+        try:
+            number: float | int = float(text)
+        except ValueError:
+            self._rebuild()          # not a number: show what it was
+            return
+        if number.is_integer():
+            number = int(number)
+        if self._zones[index][position] != number:
+            self._set(index, position, number)
+
+    def _set(self, index: int, position: int, value: Any) -> None:
+        self._zones[index][position] = value
+        self._emit()
+
+    def _remove(self, index: int) -> None:
+        del self._zones[index]
+        self._emit()
+
+    def _add(self) -> None:
+        low, high = self._range
+        span = high - low
+        if self._zones:
+            top = min(z[0] for z in self._zones if isinstance(z[0], (int, float)))
+            zone = [top - span * 0.2, top, "#ffb020"]
+        else:
+            zone = [low + span * 0.8, high, "#e63232"]
+        self._zones.append([_tidy(zone[0]), _tidy(zone[1]), zone[2]])
+        self._emit()
+
+    def _emit(self) -> None:
+        QTimer.singleShot(0, self, self._rebuild)
+        self.changed.emit([list(z) for z in self._zones] or None)
+
+
+def _tidy(number: float) -> float | int:
+    """A proposed bound, rounded to what a person would type."""
+    rounded = round(number, 2)
+    return int(rounded) if float(rounded).is_integer() else rounded
 
 
 class TextField(QLineEdit):

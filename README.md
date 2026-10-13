@@ -232,6 +232,45 @@ A shadow with `shadow_x = 0`, `shadow_y = 0`, a bright colour and a
 larger blur is a glow. Effects stay inside the widget's box, so give a
 big blur or offset some room.
 
+### Gauge
+
+`style` picks the look, the way a spectrum's `type` does:
+
+```toml
+[[widget.gauge]]
+x = 56
+y = 16
+width = 352
+height = 352
+source = "cpu"
+style = "dial"                 # arc (the default) | dial | vu
+label = "CPU %"
+format = "{percent:.0f}"
+zones = [[0.8, 1.0, "#e63232"]]  # [from, to, colour], in the reading's units
+glide = 0.4                    # seconds to swing to a new reading; 0 jumps
+```
+
+* **arc** -- the filling arc. `needle = true` adds a needle coloured
+  like the arc where it points, and `ticks = 10` a scale inside it.
+* **dial** -- a round face with ticks, numbers and a tapered needle on a
+  hub, like a car's.
+* **vu** -- a cream meter face; the needle pivots from below the scale.
+  Suits a wide, short box.
+
+Shared by all three: `sweep` (degrees the scale spans, centred at the
+top), `zones`, `ticks`, `minor_ticks`, `numbers`, and `glide`. The
+needle has `needle_color` (one colour, or several so it takes the colour
+for the value), `needle_length`, `needle_width`, `hub`, `hub_color` and
+`shadow`; dial and vu add `face`, `rim` and `scale_color`. Each style's
+defaults suit it, so `style = "vu"` alone gives a finished meter. A
+0..1 reading (cpu, memory, disk) is numbered 0-100 on the scale, while
+its `zones`, like `min` and `max`, stay in the reading's own units.
+
+The face, ticks, numbers and zones are drawn once, at load, so a redraw
+is the needle and the value: about a millisecond. With `glide` the
+widget is redrawn at 30 fps while the needle moves, and not at all when
+it is still; the reading is still taken at `fps`.
+
 ### Bar
 
 ```toml

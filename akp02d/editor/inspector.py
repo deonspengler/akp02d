@@ -28,7 +28,7 @@ from ..layout import Rect
 from ..plugins import BASE, lookup
 from ..schema import (
     BOOLEAN, CHOICE, COLOR, COLORS, FONT, FORMAT, IMAGE, INTEGER, NUMBER, SECTIONS,
-    SOURCE, STRING, Auto, Option, Schema, Values,
+    SOURCE, STRING, ZONES, Auto, Option, Schema, Values,
 )
 from ..table import REQUIRED
 from . import controls, style
@@ -114,6 +114,15 @@ def pick_image(parent: QWidget, document: ThemeDocument, title: str) -> str | No
         shutil.copy2(chosen, target)
         relative = Path(chosen.name)
     return relative.as_posix()
+
+
+def _computed_default(option: Option, values: Values, spec: Any) -> Any:
+    """The default in effect, an Auto worked out: what a field shows
+    while the theme leaves the key out."""
+    try:
+        return option.default_for(values, spec)
+    except Exception:  # noqa: BLE001 -- a half-edited theme
+        return None
 
 
 class Inspector(QWidget):
@@ -559,12 +568,21 @@ class Inspector(QWidget):
             control = field
         elif kind == COLOR:
             field = controls.ColorField()
-            field.set_value(value, option.default if isinstance(option.default, str) else None)
+            computed = _computed_default(option, values, spec)
+            field.set_value(value, computed if isinstance(computed, str) else None)
             field.changed.connect(emit)
             control = field
         elif kind == COLORS:
             field = controls.GradientField()
-            field.set_value(value, option.default)
+            field.set_value(value, _computed_default(option, values, spec))
+            field.changed.connect(emit)
+            control = field
+        elif kind == ZONES:
+            field = controls.ZonesField()
+            low, high = values.get("min"), values.get("max")
+            span = (float(low), float(high)) if all(
+                isinstance(v, (int, float)) for v in (low, high)) else (0.0, 1.0)
+            field.set_value(value, span)
             field.changed.connect(emit)
             control = field
         elif kind == SECTIONS:

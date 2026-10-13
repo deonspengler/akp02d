@@ -72,6 +72,7 @@ COLOR = "color"        # read as an (r, g, b) tuple
 COLORS = "colors"      # a gradient: a non-empty list of colours
 SOURCE = "source"      # a data source by name; read as a Source
 SECTIONS = "sections"  # a table of tables, passed to another program
+ZONES = "zones"        # ranges of a reading with a colour: [[from, to, colour], ...]
 
 
 class Values(SimpleNamespace):
@@ -168,7 +169,7 @@ class Option:
         default = self.default_for(values, spec)
         key, kind = self.key, self.kind
         if default is None and key not in table and kind not in (
-            STRING, FORMAT, FONT, IMAGE, SOURCE, SECTIONS
+            STRING, FORMAT, FONT, IMAGE, SOURCE, SECTIONS, ZONES
         ):
             table.raw(key)  # mark it read; absent means "none"
             return None
@@ -193,6 +194,8 @@ class Option:
             return table.colors(key, default)
         if kind == SECTIONS:
             return table.sections(key)
+        if kind == ZONES:
+            return table.zones(key)
         if kind == SOURCE:
             # Imported here: sources declare schemas of their own, so
             # this module is imported by sources.py.
@@ -338,7 +341,9 @@ def color(key: str, default: Any = None, **kw: Any) -> Option:
 
 
 def colors(key: str, default: tuple[str, ...] | None, **kw: Any) -> Option:
-    return Option(key, COLORS, tuple(default) if default is not None else None, **kw)
+    if isinstance(default, (list, tuple)):
+        default = tuple(default)
+    return Option(key, COLORS, default, **kw)
 
 
 def source(key: str = "source", accepts: tuple[str, ...] = (),
@@ -346,6 +351,10 @@ def source(key: str = "source", accepts: tuple[str, ...] = (),
     kw.setdefault("group", "Data")
     return Option(key, SOURCE, REQUIRED if required else None,
                   accepts=tuple(accepts), **kw)
+
+
+def zones(key: str = "zones", **kw: Any) -> Option:
+    return Option(key, ZONES, (), **kw)
 
 
 def sections(key: str, **kw: Any) -> Option:

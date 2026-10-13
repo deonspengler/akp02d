@@ -147,6 +147,25 @@ class Table:
             parse_color(v, f"{self.path(key)}[{i}]") for i, v in enumerate(value)
         )
 
+    def zones(self, key: str) -> tuple[tuple[float, float, tuple[int, int, int]], ...]:
+        """Ranges of a reading, each with a colour: [[from, to, colour], ...]."""
+        value = self.raw(key, ())
+        if isinstance(value, str) or not isinstance(value, Sequence):
+            raise self.fail(key, 'a list of [from, to, colour], e.g. [[80, 100, "#e63232"]]',
+                            value)
+        out = []
+        for index, zone in enumerate(value):
+            where = f"{self.path(key)}[{index}]"
+            if (isinstance(zone, str) or not isinstance(zone, Sequence) or len(zone) != 3
+                    or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                           for v in zone[:2])):
+                raise SettingsError(f"{where} must be [from, to, colour], got {zone!r}")
+            low, high, colour = zone
+            if high <= low:
+                raise SettingsError(f"{where}: to ({high}) must be greater than from ({low})")
+            out.append((float(low), float(high), parse_color(colour, where)))
+        return tuple(out)
+
     def scalars(self, key: str) -> dict[str, Any]:
         """A table of plain scalars, to hand to another program verbatim.
 
