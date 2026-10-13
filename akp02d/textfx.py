@@ -27,25 +27,24 @@ from .schema import Option, choice, color, colors, integer, number
 RGB = tuple[int, int, int]
 
 
-def _has_gradient(values) -> bool:
-    return bool(values.get("gradient"))
+def _is_gradient(values) -> bool:
+    # Read values are tuples of stops; a tool's raw ones may be a plain
+    # string -- one colour, however many characters it has.
+    stops = values.get("color")
+    return isinstance(stops, (list, tuple)) and len(stops) > 1
 
 
 def fill_options(fill: str = "#ffffff", group: str = "Text") -> list[Option]:
-    """How the letters are filled: `color`, or a gradient in its place.
+    """How the letters are filled: `color`, one colour or several.
 
-    Kept together, so a form shows the two choices side by side; while
-    a gradient is set, `color` is marked as set aside rather than hidden.
+    A gradient is a colour with more stops, so there is one option, not
+    two that could disagree: `color = "#fff"` or `color = ["#f0f", "#0ff"]`.
     """
     return [
-        color("color", fill, group=group,
-              inactive=lambda v: "Not used while a gradient is set"
-              if _has_gradient(v) else None),
-        colors("gradient", None, group=group,
-               doc="Fill the text with a gradient instead of one colour; "
-                   "empty uses `color`"),
+        colors("color", (fill,), group=group,
+               doc="One colour, or a list of them for a gradient across the text"),
         choice("gradient_direction", ("vertical", "horizontal"), "vertical",
-               group=group, when=_has_gradient,
+               group=group, when=_is_gradient,
                doc="vertical runs top to bottom over the letters' height; "
                    "horizontal runs left to right across the text"),
     ]
@@ -93,11 +92,12 @@ class TextStyle:
     _ramps: dict = field(default_factory=dict)
 
     @classmethod
-    def read(cls, values, fill: RGB) -> TextStyle:
+    def read(cls, values) -> TextStyle:
         """From schema values read through `options()`."""
+        stops = tuple(values.color)
         return cls(
-            fill=fill,
-            stops=tuple(values.gradient) if values.gradient else None,
+            fill=stops[0],
+            stops=stops if len(stops) > 1 else None,
             vertical=values.gradient_direction == "vertical",
             outline=values.outline,
             outline_width=values.outline_width,

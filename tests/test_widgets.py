@@ -57,7 +57,7 @@ def label_pixels(**options) -> Image.Image:
 
 
 def test_label_gradient_runs_top_to_bottom() -> None:
-    image = label_pixels(gradient=["#ff0000", "#0000ff"], color="#00ff00")
+    image = label_pixels(color=["#ff0000", "#0000ff"])
     reds = [image.getpixel((x, y)) for y in range(80) for x in range(300)
             if image.getpixel((x, y)) != (10, 10, 10)]
     assert reds, "nothing drawn"
@@ -67,7 +67,13 @@ def test_label_gradient_runs_top_to_bottom() -> None:
     r_top, _, b_top = row(top + 2)[0]
     r_bot, _, b_bot = row(bottom - 2)[0]
     assert r_top > b_top and b_bot > r_bot
-    assert all(g < 40 for _, g, _ in reds)   # `color` is not used with a gradient
+    assert all(g < 40 for _, g, _ in reds)   # only the two stops' colours
+
+
+def test_label_color_one_stop_is_plain_colour() -> None:
+    """A one-stop list and a plain string draw the same pixels."""
+    plain = label_pixels(color="#ff8800")
+    assert label_pixels(color=["#ff8800"]).tobytes() == plain.tobytes()
 
 
 def test_label_outline_and_shadow_add_pixels() -> None:

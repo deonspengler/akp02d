@@ -15,6 +15,13 @@
 carries its pictures with it. Transparency is honoured: a PNG with an
 alpha channel sits over the wallpaper, not in a box.
 
+Or the picture comes from a source -- `source = "media"` shows the cover
+of what is playing, whether the player hands it over as a file, a
+download, or inline base64 (see artwork.py). `path` is then the picture
+shown while there is no cover; without one, the background shows. A
+new cover that is still downloading leaves the old one up until it
+arrives, rather than flashing the fallback between tracks.
+
 How the picture meets the box:
 
 * contain -- all of it, as large as fits; the spare room shows the
@@ -44,7 +51,8 @@ from typing import TYPE_CHECKING
 
 from PIL import Image, ImageChops, ImageDraw, ImageSequence, UnidentifiedImageError
 
-from ..schema import Schema, boolean, choice, image, integer, number
+from .. import artwork, sources
+from ..schema import Schema, boolean, choice, image, integer, number, source
 from .base import PluginError, Widget, WidgetSpec, register
 
 if TYPE_CHECKING:
@@ -109,14 +117,18 @@ def placement(source: tuple[int, int], box: tuple[int, int], fit: str,
 
 @register("image")
 class ImageWidget(Widget):
-    """A picture: still, or animated at its own frame rate."""
+    """A picture: a file, still or animated, or a source's (cover art)."""
 
     default_fps = 1.0
-    summary = "A picture from the theme's folder; animated GIFs play"
+    summary = "A picture: a file in the theme's folder, or cover art from media"
     schema = Schema(
-        image("path", group="Image",
+        source(accepts=(sources.PICTURE,), group="Image",
+               doc="Where a changing picture comes from: media for the cover "
+                   "of what is playing. Empty shows `path`"),
+        image("path", None, group="Image",
               doc="An image file in the theme's folder (PNG, JPEG, WebP, "
-                  "GIF, ...); animated ones play"),
+                  "GIF, ...); animated ones play. With a source, shown "
+                  "whenever it has no picture"),
         choice("fit", ("contain", "cover", "stretch", "none"), "contain", group="Image",
                doc="contain: all of it, as large as fits; cover: fill the box, "
                    "cropping; stretch: fill exactly, ignoring its shape; "
@@ -131,49 +143,65 @@ class ImageWidget(Widget):
         integer("radius", 0, 0, 1024, group="Image",
                 doc="Corner rounding of the picture, in pixels"),
         boolean("animate", True, group="Image",
+                when=lambda v: bool(v.get("path")),
                 doc="Play an animated file; off shows its first frame"),
     )
 
-    __slots__ = ("_ends", "_frames", "_last", "_start", "fps_auto")
+    __slots__ = ("_art", "_ends", "_fit", "_frames", "_last", "_opacity", "_radius",
+                 "_resample", "_source", "_start", "_url", "fps_auto")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
         super().__init__(spec, theme)
         options = spec.options
         o = self.schema.read(options, spec)
         options.reject_unknown()
-
-        file = (theme.path / Path(o.path).expanduser())
-        if not file.is_file():
-            raise PluginError(f"widget {self.id!r}: path: no file {o.path!r} in {theme.path}")
-        try:
-            frames, delays = load_frames(file)
-        except (OSError, UnidentifiedImageError) as exc:
-            raise PluginError(f"widget {self.id!r}: path: cannot read {o.path!r}: {exc}") from exc
-        if not o.animate:
-            frames, delays = frames[:1], delays[:1]
-
-        box = spec.rect.size
-        keep = max(1, MAX_BYTES // (box[0] * box[1] * 3))
-        if len(frames) > keep:
-            log.warning("%s: %s has %d frames; keeping %d of them to stay within "
-                        "%d MiB -- a smaller box keeps more", self.id, o.path,
-                        len(frames), keep, MAX_BYTES // 2**20)
-            frames, delays = _thin(frames, delays, keep)
-
-        place = placement(frames[0].size, box, o.fit, ALIGNS[o.align])
-        mask = _corners(box, place, o.radius)
-        resample = Image.Resampling.NEAREST if o.scaling == "pixel" \
+        self._source = o.source
+        if self._source is None and not o.path:
+            raise PluginError(f"widget {self.id!r}: needs a picture: set path to an "
+                              "image file, or source to where pictures come from "
+                              "(media for cover art)")
+        self._fit = (o.fit, ALIGNS[o.align])
+        self._radius = o.radius
+        self._opacity = o.opacity
+        self._resample = Image.Resampling.NEAREST if o.scaling == "pixel" \
             else Image.Resampling.LANCZOS
-        self._frames = tuple(self._compose(f, place, mask, o.opacity, resample)
-                             for f in frames)
+        # The source's picture now: its URL, and that picture composed, once
+        # it has arrived.
+        self._url = ""
+        self._art: Image.Image | None = None
+
+        frames: tuple[Image.Image, ...] = ()
+        delays: tuple[int, ...] = ()
+        if o.path:
+            file = theme.path / Path(o.path).expanduser()
+            if not file.is_file():
+                raise PluginError(f"widget {self.id!r}: path: no file {o.path!r} "
+                                  f"in {theme.path}")
+            try:
+                frames, delays = load_frames(file)
+            except (OSError, UnidentifiedImageError) as exc:
+                raise PluginError(f"widget {self.id!r}: path: cannot read "
+                                  f"{o.path!r}: {exc}") from exc
+            if not o.animate:
+                frames, delays = frames[:1], delays[:1]
+            box = spec.rect.size
+            keep = max(1, MAX_BYTES // (box[0] * box[1] * 3))
+            if len(frames) > keep:
+                log.warning("%s: %s has %d frames; keeping %d of them to stay within "
+                            "%d MiB -- a smaller box keeps more", self.id, o.path,
+                            len(frames), keep, MAX_BYTES // 2**20)
+                frames, delays = _thin(frames, delays, keep)
+        # The file's frames, fitted and laid over the background; with no
+        # path, the background alone.
+        self._frames = tuple(self._compose(f) for f in frames) or (self.backdrop.copy(),)
         # When each frame ends, from the start of a loop, in seconds.
         total, ends = 0, []
-        for delay in delays:
+        for delay in delays or (1000,):
             total += delay
             ends.append(total / 1000)
         self._ends = tuple(ends)
         self._start: float | None = None
-        self._last = -1
+        self._last: object = None
         self.fps_auto = False
         if len(self._frames) > 1 and spec.fps is None:
             # Visit as often as the quickest frame needs, and no more.
@@ -181,18 +209,21 @@ class ImageWidget(Widget):
             self.period = 1.0 / self.fps
             self.fps_auto = True
 
-    def _compose(self, frame: Image.Image, place, mask, opacity: float,
-                 resample) -> Image.Image:
-        """One frame fitted into the box and laid over the background."""
-        x, y, width, height = place
-        if frame.size != (width, height):
-            frame = frame.resize((width, height), resample)
-        layer = Image.new("RGBA", self.backdrop.size, (0, 0, 0, 0))
-        layer.paste(frame, (x, y))
+    def _compose(self, picture: Image.Image) -> Image.Image:
+        """A picture fitted into the box and laid over the background."""
+        box = self.backdrop.size
+        fit, align = self._fit
+        x, y, width, height = place = placement(picture.size, box, fit, align)
+        if picture.size != (width, height):
+            picture = picture.resize((width, height), self._resample)
+        layer = Image.new("RGBA", box, (0, 0, 0, 0))
+        layer.paste(picture, (x, y))
         alpha = layer.getchannel("A")
+        mask = _corners(box, place, self._radius)
         if mask is not None:
             alpha = ImageChops.multiply(alpha, mask)
-        if opacity < 1.0:
+        if self._opacity < 1.0:
+            opacity = self._opacity
             alpha = alpha.point(lambda a: round(a * opacity))
         out = self.backdrop.copy()
         out.paste(layer.convert("RGB"), (0, 0), alpha)
@@ -201,6 +232,13 @@ class ImageWidget(Widget):
     def render(self, now: float) -> bool:
         if self._start is None:
             self._start = now
+        if self._source is not None and self._source_picture(now):
+            if self._last == self._url:
+                return False
+            self._last = self._url
+            assert self._art is not None
+            self.surface.paste(self._art, (0, 0))
+            return True
         index = 0
         if len(self._frames) > 1:
             at = (now - self._start) % self._ends[-1]
@@ -210,6 +248,27 @@ class ImageWidget(Widget):
         self._last = index
         self.surface.paste(self._frames[index], (0, 0))
         return True
+
+    def _source_picture(self, now: float) -> bool:
+        """Whether the source has a picture to show (now in self._art).
+
+        While a new cover is still downloading, the old one stays up --
+        a flash of the fallback between tracks would only be noise.
+        """
+        _, fields = self._source.read(now)
+        url = fields.get("art") or ""
+        if url != self._url:
+            picture = artwork.picture(url)
+            if picture is artwork.PENDING:
+                return self._art is not None
+            self._url = url
+            self._art = self._compose(picture) if picture is not None else None
+        elif self._art is None and url:
+            # Arrived since: a download that was pending.
+            picture = artwork.picture(url)
+            if isinstance(picture, Image.Image):
+                self._art = self._compose(picture)
+        return self._art is not None
 
 
 def _thin(frames, delays, keep: int):

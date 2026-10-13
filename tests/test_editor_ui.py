@@ -148,13 +148,14 @@ def test_changing_source_drops_a_format_that_no_longer_fits(app, tmp_path: Path)
         pump(app)
 
 
-def test_gradient_sets_color_aside(app, tmp_path: Path) -> None:
-    """`color` sits beside `gradient`, greyed while a gradient is set;
-    a colour-safe box carries no note, an unsafe one does."""
+def test_color_is_one_colour_or_a_gradient(app, tmp_path: Path) -> None:
+    """A label's `color` is one option: a colour field until a second
+    stop is added, then a gradient with its direction. A colour-safe box
+    carries no note, an unsafe one does."""
     (tmp_path / "theme.toml").write_text(
         '[theme]\norientation = "portrait"\n\n[[widget.label]]\n'
         'x = 8\ny = 0\nwidth = 170\nheight = 50\nformat = "Hi"\n'
-        'color = "#ff8800"\ngradient = ["#fd44dd", "#11e3f5"]\n')
+        'color = "#ff8800"\n')
     window = EditorWindow(ThemeDocument.open(tmp_path), config.Config())
     try:
         window.show()
@@ -162,28 +163,36 @@ def test_gradient_sets_color_aside(app, tmp_path: Path) -> None:
         window._set_selection(ref)
         pump(app, 0.2)
 
-        def colour_field():
-            return window.inspector.findChild(QtWidgets.QWidget, "opt.color")
+        def field():
+            return window.inspector.findChild(controls.GradientField, "opt.color")
+
+        def direction():
+            return window.inspector.findChild(QtWidgets.QComboBox, "opt.gradient_direction")
 
         def labels():
             return [w.text() for w in window.inspector.findChildren(QtWidgets.QLabel)]
 
-        assert not colour_field().isEnabled()
-        names = [t for t in labels() if t in ("font", "size", "color", "gradient")]
-        assert names.index("gradient") == names.index("color") + 1
+        assert not field().is_gradient and field().edit.text() == "#ff8800"
+        assert direction() is None                 # nothing to direct yet
         assert not any("olour-safe" in t for t in labels())
+        assert "gradient" not in labels()
 
-        # Only the choices are listed; the default shows as selected.
-        direction = window.inspector.findChild(QtWidgets.QComboBox, "opt.gradient_direction")
-        items = [direction.itemText(i) for i in range(direction.count())]
-        assert items == ["vertical", "horizontal"]
-        assert direction.currentText() == "vertical"
+        field()._add()
+        pump(app, 0.3)
+        assert window.document.entry(ref)["color"] == ["#ff8800", "#ff8800"]
+        assert field().is_gradient
+        items = [direction().itemText(i) for i in range(direction().count())]
+        assert items == ["vertical", "horizontal"] and direction().currentText() == "vertical"
         fit = window.inspector.findChild(QtWidgets.QComboBox, "opt.fit")
         assert fit.currentText() == "clip" and fit.count() == 3
 
-        window._widget_edited(ref, "gradient", None)
-        pump(app, 0.2)
-        assert colour_field().isEnabled()
+        # Down to one stop: written as a plain colour again.
+        f = field()
+        del f._stops[1]
+        f._emit()
+        pump(app, 0.3)
+        assert window.document.entry(ref)["color"] == "#ff8800"
+        assert direction() is None
 
         window._widget_edited(ref, "x", 9)
         pump(app, 0.2)
@@ -193,18 +202,18 @@ def test_gradient_sets_color_aside(app, tmp_path: Path) -> None:
         window.close()
 
 
-def test_add_image_asks_for_the_picture(app, tmp_path: Path, monkeypatch) -> None:
-    """Adding an image starts with the file: copied into the theme's
-    folder, and the box takes the picture's shape."""
+def test_add_image_then_pick_where_pictures_come_from(app, tmp_path: Path, monkeypatch) -> None:
+    """Adding an image asks nothing: the widget says it needs a picture,
+    and either a file or a source gives it one. A file from elsewhere
+    is copied into the theme's folder."""
     from PIL import Image
 
+    def never(*a, **k):
+        raise AssertionError("no dialog when adding")
+
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileName", staticmethod(never))
     theme = tmp_path / "theme"
     shutil.copytree(Path(akp02d.__file__).parent / "themes" / "default", theme)
-    elsewhere = tmp_path / "pictures"
-    elsewhere.mkdir()
-    Image.new("RGB", (400, 200), (200, 40, 40)).save(elsewhere / "logo.png")
-    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileName",
-                        staticmethod(lambda *a, **k: (str(elsewhere / "logo.png"), "")))
     window = EditorWindow(ThemeDocument.open(theme), config.Config())
     try:
         window.show()
@@ -212,19 +221,32 @@ def test_add_image_asks_for_the_picture(app, tmp_path: Path, monkeypatch) -> Non
         count = len(window.engine.slots)
         window.add_widget("image")
         pump(app, 0.3)
-        assert (theme / "logo.png").is_file()
         assert len(window.engine.slots) == count + 1
         slot = window.engine.slots[-1]
-        assert slot.plugin == "image" and slot.widget is not None
-        assert slot.rect.width == 200 and 96 <= slot.rect.height <= 104
-        path_field = window.inspector.findChild(QtWidgets.QLineEdit, "opt.path")
-        assert path_field is not None and path_field.text() == "logo.png"
-        # Cancelling the dialog adds nothing.
+        ref = Ref("image", 1)
+        assert slot.plugin == "image" and slot.widget is None
+        assert any("needs a picture" in p.message for p in window.engine.problems())
+
+        # Cover art: the simulated playlist's covers come as data: URLs.
+        window._widget_edited(ref, "source", "media")
+        pump(app, 0.3)
+        widget = window.engine.slots[-1].widget
+        assert widget is not None and widget._art is not None
+
+        # Or a file, through Choose…
+        elsewhere = tmp_path / "pictures"
+        elsewhere.mkdir()
+        Image.new("RGB", (40, 20), (200, 40, 40)).save(elsewhere / "logo.png")
         monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileName",
-                            staticmethod(lambda *a, **k: ("", "")))
-        window.add_widget("image")
-        pump(app, 0.2)
-        assert len(window.engine.slots) == count + 1
+                            staticmethod(lambda *a, **k: (str(elsewhere / "logo.png"), "")))
+        window._widget_edited(ref, "source", None)
+        pump(app, 0.3)
+        row = window.inspector.findChild(QtWidgets.QWidget, "opt.path.row")
+        row.findChild(QtWidgets.QPushButton).click()
+        pump(app, 0.3)
+        assert (theme / "logo.png").is_file()
+        assert window.document.entry(ref)["path"] == "logo.png"
+        assert window.engine.slots[-1].widget is not None
     finally:
         window.undo.setClean()
         window.close()

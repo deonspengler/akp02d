@@ -465,7 +465,7 @@ class Inspector(QWidget):
         if kind == SOURCE:
             names = [name for name in sources.available()
                      if (cls := sources.lookup(name)) is not None
-                     and (not option.accepts or cls.kind in option.accepts)]
+                     and (not option.accepts or sources.fits(cls, option.accepts))]
             field = controls.SourceField(names, option.required)
             field.set_value(value)
             for index in range(field.count()):

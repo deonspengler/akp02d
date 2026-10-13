@@ -164,7 +164,7 @@ which is why static text needs no plugin of its own.
 | `uptime` | text | `value` (`3d 4h 12m`), `days`, `hours`, `minutes`, `total_hours` |
 | `kernel` | text | `value` (release), `version`, `machine` |
 | `ip` | text | `value` (IPv4 of the default route, or of `interface`) |
-| `media` | 0..1 (track progress) | `title`, `artist`, `album`, `status`, `player`, `position`, `length`, `remaining`, `position_s`, `length_s`, `percent` (`player`, `idle`) |
+| `media` | 0..1 (track progress) | `title`, `artist`, `album`, `status`, `player`, `position`, `length`, `remaining`, `position_s`, `length_s`, `percent`, `art` (`player`, `idle`) |
 
 Gauges, bars and graphs draw the numeric kinds; labels show anything.
 A label with a source and no `format` uses that source's usual one --
@@ -212,7 +212,7 @@ cut it short with an `ellipsis`, or `shrink` the font until it fits
 [[widget.label]]
 format = "{value:%H:%M:%S}"
 source = "time"
-gradient = ["#fd44dd", "#11e3f5"]   # instead of `color`
+color = ["#fd44dd", "#11e3f5"]      # a gradient: a colour with more stops
 gradient_direction = "vertical"     # or "horizontal"
 outline = "#000000"                 # a line round each letter
 outline_width = 2
@@ -222,6 +222,11 @@ shadow_y = 2
 shadow_blur = 3
 shadow_alpha = 0.6
 ```
+
+Any colour option that can be a gradient (a label's `color`, a gauge's
+or bar's `gradient`) takes one colour or a list; one colour is simply a
+gradient of one stop. In the editor it shows as a colour with a +
+beside it, and becomes a gradient when a second stop is added.
 
 A shadow with `shadow_x = 0`, `shadow_y = 0`, a bright colour and a
 larger blur is a glow. Effects stay inside the widget's box, so give a
@@ -264,6 +269,26 @@ opacity = 1.0
 scaling = "smooth"       # "pixel" keeps pixel art crisp
 ```
 
+Or cover art for what is playing, with a picture for when nothing is:
+
+```toml
+[[widget.image]]
+x = 16
+y = 16
+width = 120
+height = 120
+source = "media"         # the cover of the current track
+path = "no-cover.png"    # optional: shown while there is none
+fit = "cover"
+radius = 12
+```
+
+Players hand covers over in three ways, all handled: a local file
+(`file://`), a download (`https://`, e.g. Spotify -- fetched in the
+background, so the panel never waits on the network), or the picture
+itself inline as base64 (`data:image/...;base64,`). Covers are cached,
+and while the next one downloads the current one stays up.
+
 `contain` shows all of the picture, as large as fits; `cover` fills the
 box and crops; `stretch` fills it exactly; `none` keeps the picture's
 own size. Transparent PNGs sit over the wallpaper.
@@ -276,9 +301,10 @@ long animation in a big box is thinned to an even spread of frames to
 keep memory in check, with a note in the log.
 
 Edit a picture in place and the daemon picks it up, like the wallpaper.
-In the editor, adding an image asks for the file first; one from
-elsewhere is copied into the theme's folder, so the theme stays one
-folder you can move or share.
+In the editor, Choose… copies a picture from elsewhere into the theme's
+folder, so the theme stays one folder you can move or share, and the
+simulated playlist has covers, so a now-playing block can be designed
+in silence.
 
 Any widget may lay its own `background` colour over the wallpaper at
 `alpha` opacity. Text is centred on its cap-height band, so digits and

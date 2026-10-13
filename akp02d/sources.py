@@ -28,6 +28,9 @@ from .table import SettingsError, Table
 
 # What a source produces, and therefore which shapes can draw it.
 SCALAR, TEXT, MOMENT, PAIR = "scalar", "text", "moment", "pair"
+# Not a kind of its own: what a widget that shows pictures accepts. Any
+# source whose fields include an `art` picture (see `pictures`) fits.
+PICTURE = "picture"
 
 
 class SourceError(SettingsError):
@@ -56,6 +59,9 @@ class Source:
     # Ready-made format strings, the first used when a label names the
     # source but no format. Offered by editors as suggestions.
     formats: tuple[str, ...] = ("{value}",)
+    # Whether its fields carry a picture as `art`: a URL (file://,
+    # https://, or data: with the image inline), or "" for none.
+    pictures = False
 
     def __init__(self, options: Table, widget: str) -> None:
         self.schema.read(options)
@@ -451,7 +457,8 @@ class MediaSource(Source):
                doc="The title shown when nothing is playing"),
     )
     fields = ("title", "artist", "album", "status", "player", "position", "length",
-              "remaining", "position_s", "length_s", "value", "percent")
+              "remaining", "position_s", "length_s", "value", "percent", "art")
+    pictures = True   # the cover art, for an image widget
     formats = ("{title}", "{artist} · {title}", "{artist}", "{album}",
                "{position} / {length}", "{remaining}", "{status}")
     summary = "What a media player is playing (needs playerctl)"
@@ -520,6 +527,7 @@ def media_fields(track, now: float, idle: str) -> dict[str, Any]:
         "length_s": length,
         "value": 0.0 if nothing else progress,
         "percent": 0.0 if nothing else progress * 100,
+        "art": "" if nothing else track.art,
     }
 
 
@@ -760,12 +768,20 @@ def resolve(options: Table, widget: str, accepts: tuple[str, ...]) -> Source | N
     if name is None:
         return None
     source = create(name, options, widget)
-    if source.kind not in accepts:
+    if not fits(source, accepts):
         raise SourceError(
             f"widget {widget!r}: source {name!r} produces a {source.kind}, "
             f"but this widget needs {' or a '.join(accepts)}"
         )
     return source
+
+
+def fits(source, accepts: tuple[str, ...]) -> bool:
+    """Whether a source (an instance, class or stand-in) gives what a
+    widget accepting `accepts` draws."""
+    if source.kind in accepts:
+        return True
+    return PICTURE in accepts and getattr(source, "pictures", False)
 
 
 def available() -> tuple[str, ...]:

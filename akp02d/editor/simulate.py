@@ -36,6 +36,41 @@ _PLAYLIST = (
 )
 
 
+# A made-up cover per track, as colour pairs.
+_COVER_COLOURS = (((253, 68, 221), (17, 227, 245)), ((255, 160, 60), (120, 40, 160)),
+                  ((40, 230, 140), (20, 60, 200)))
+_covers: dict[int, str] = {}
+
+
+def _cover(index: int) -> str:
+    """Track `index`'s cover as a data: URL with the picture inline, the
+    way some players send it -- so the editor shows cover art in
+    silence, and exercises the same decoding the panel will."""
+    url = _covers.get(index)
+    if url is None:
+        import base64
+        import io
+
+        from PIL import Image, ImageChops, ImageDraw
+
+        size = 240
+        first, second = _COVER_COLOURS[index % len(_COVER_COLOURS)]
+        # Diagonal: half the vertical ramp plus half the horizontal one.
+        down = Image.linear_gradient("L").resize((size, size)).point(lambda v: v // 2)
+        ramp = ImageChops.add(down, down.transpose(Image.Transpose.ROTATE_90))
+        cover = Image.composite(Image.new("RGB", (size, size), second),
+                                Image.new("RGB", (size, size), first), ramp)
+        draw = ImageDraw.Draw(cover)
+        inset = 60 + 12 * index
+        draw.ellipse((inset, inset, size - inset, size - inset),
+                     outline=(255, 255, 255), width=10)
+        buffer = io.BytesIO()
+        cover.save(buffer, "PNG")
+        url = _covers[index] = ("data:image/png;base64,"
+                                + base64.b64encode(buffer.getvalue()).decode("ascii"))
+    return url
+
+
 def _wave(now: float, *periods: float) -> float:
     """A smooth 0..1 wander built from a few incommensurate sines."""
     total = sum(math.sin(now * 2 * math.pi / p + i * 1.7) for i, p in enumerate(periods))
@@ -92,7 +127,7 @@ class StandIn:
     with history the moment it is built.
     """
 
-    __slots__ = ("formats", "kind", "name", "range", "real")
+    __slots__ = ("formats", "kind", "name", "pictures", "range", "real")
 
     def __init__(self, real: sources.Source, name: str) -> None:
         self.real = real
@@ -100,6 +135,7 @@ class StandIn:
         self.kind = real.kind
         self.range = getattr(real, "range", (0.0, 1.0))
         self.formats = getattr(real, "formats", ())
+        self.pictures = getattr(real, "pictures", False)
 
     def close(self) -> None:
         self.real.close()
@@ -113,13 +149,13 @@ class StandIn:
 
             cycle = sum(track[3] for track in _PLAYLIST)
             at = now % cycle
-            for artist, title, album, length in _PLAYLIST:
+            for index, (artist, title, album, length) in enumerate(_PLAYLIST):
                 if at < length:
                     break
                 at -= length
             track = media.Track(status="Playing", player="simulated", artist=artist,
                                 title=title, album=album, length=float(length),
-                                position=at, at=now)
+                                position=at, at=now, art=_cover(index))
             fields = sources.media_fields(track, now, getattr(self.real, "_idle", ""))
             return fields["value"], fields
         if name == "network":

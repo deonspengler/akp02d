@@ -133,10 +133,16 @@ class Table:
     def colors(
         self, key: str, default: Sequence[str]
     ) -> tuple[tuple[int, int, int], ...]:
-        """A list of colours, for gradients."""
+        """One colour or a list of them: a gradient, of one stop or more.
+
+        A single colour may be written plainly (`color = "#fff"`), since a
+        one-stop gradient is just that colour.
+        """
         value = self.raw(key, default)
-        if isinstance(value, str) or not isinstance(value, Sequence) or not value:
-            raise self.fail(key, "a non-empty list of colours", value)
+        if isinstance(value, str):
+            return (parse_color(value, self.path(key)),)
+        if not isinstance(value, Sequence) or not value:
+            raise self.fail(key, "a colour or a non-empty list of colours", value)
         return tuple(
             parse_color(v, f"{self.path(key)}[{i}]") for i, v in enumerate(value)
         )

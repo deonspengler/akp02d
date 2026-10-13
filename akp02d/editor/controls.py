@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from PIL import ImageColor
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QHBoxLayout, QLineEdit, QMenu,
@@ -152,7 +152,14 @@ class GradientBar(QWidget):
 
 
 class GradientField(QWidget):
-    """A list of colour stops, drawn as the ramp they make."""
+    """A colour, or several: a gradient is a colour with more stops.
+
+    One stop looks and works like a colour field -- swatch and text --
+    with a + beside it. Adding a stop turns it into a gradient: the ramp
+    it makes, one chip per stop (click to change, right-click to
+    remove). Removing back down to one stop makes it a colour again.
+    One stop is written as a plain colour, more as a list.
+    """
 
     changed = Signal(object)
 
@@ -166,13 +173,15 @@ class GradientField(QWidget):
         self.row = QHBoxLayout()
         self.row.setSpacing(4)
         outer.addLayout(self.row)
+        self.edit: QLineEdit | None = None
         self._stops: list[str] = []
-        self._explicit = False
 
-    def set_value(self, value: Any, default: Sequence[str] | None = None) -> None:
-        self._explicit = isinstance(value, list)
-        stops = value if self._explicit else list(default or [])
-        self._stops = [str(s) for s in stops]
+    @property
+    def is_gradient(self) -> bool:
+        return len(self._stops) > 1
+
+    def set_value(self, value: Any, default: Sequence[str] | str | None = None) -> None:
+        self._stops = _stops(value) or _stops(default)
         self._rebuild()
 
     def _rebuild(self) -> None:
@@ -184,24 +193,58 @@ class GradientField(QWidget):
                 # make it a window of its own for a moment.
                 old.hide()
                 old.deleteLater()
+        self.edit = None
+        self.bar.setVisible(self.is_gradient)
         self.bar.stops = [rgb(s) or QColor("#000000") for s in self._stops]
         self.bar.update()
-        for index, stop in enumerate(self._stops):
-            chip = Swatch(self, 20)
+        if self.is_gradient:
+            for index, stop in enumerate(self._stops):
+                chip = Swatch(self, 20)
+                chip.set_colour(rgb(stop))
+                chip.setToolTip(f"{stop} -- click to change, right-click to remove")
+                chip.picked.connect(lambda colour, i=index: self._set(i, colour))
+                chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                chip.customContextMenuRequested.connect(
+                    lambda pos, i=index, c=chip: self._menu(i, c, pos))
+                self.row.addWidget(chip)
+        else:
+            stop = self._stops[0] if self._stops else None
+            chip = Swatch(self)
             chip.set_colour(rgb(stop))
-            chip.setToolTip(f"{stop} -- click to change, right-click to remove")
-            chip.picked.connect(lambda colour, i=index: self._set(i, colour))
-            chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            chip.customContextMenuRequested.connect(
-                lambda pos, i=index, c=chip: self._menu(i, c, pos))
+            chip.picked.connect(lambda colour: self._set(0, colour))
             self.row.addWidget(chip)
+            self.edit = QLineEdit(self)
+            self.edit.setMaximumWidth(110)
+            self.edit.setText(stop or "")
+            self.edit.setPlaceholderText("none")
+            self.edit.setProperty("invalid", bool(stop) and rgb(stop) is None)
+            self.edit.editingFinished.connect(self._typed)
+            self.row.addWidget(self.edit)
+            self.setFocusProxy(self.edit)
         add = QToolButton(self)
         add.setText("+")
-        add.setToolTip("Add a stop")
+        add.setToolTip("Add a stop" if self.is_gradient
+                       else "Add a second colour, making a gradient")
         add.setFixedSize(QSize(22, 22))
+        # The theme's button padding would leave no room for the +.
+        add.setStyleSheet("padding: 0; font-size: 15px;")
+        add.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         add.clicked.connect(self._add)
         self.row.addWidget(add)
         self.row.addStretch(1)
+
+    def _typed(self) -> None:
+        assert self.edit is not None
+        text = self.edit.text().strip()
+        current = self._stops[0] if self._stops else ""
+        if text == current:
+            return
+        if not text:
+            self._stops = []
+            self.changed.emit(None)     # back to the default
+            self._rebuild()
+            return
+        self._set(0, text)
 
     def _menu(self, index: int, chip: QWidget, pos) -> None:
         menu = QMenu(self)
@@ -212,17 +255,32 @@ class GradientField(QWidget):
             self._emit()
 
     def _set(self, index: int, colour: str) -> None:
-        self._stops[index] = colour
+        if index < len(self._stops):
+            self._stops[index] = colour
+        else:
+            self._stops.append(colour)
         self._emit()
 
     def _add(self) -> None:
         self._stops.append(self._stops[-1] if self._stops else "#ffffff")
+        if len(self._stops) == 1:
+            self._stops.append(self._stops[0])
         self._emit()
 
     def _emit(self) -> None:
-        self._explicit = True
-        self._rebuild()
-        self.changed.emit(list(self._stops))
+        stops = list(self._stops)
+        # Rebuilt after the signal's handlers run: the edit may be the
+        # widget that sent us here.
+        QTimer.singleShot(0, self, self._rebuild)
+        self.changed.emit(stops[0] if len(stops) == 1 else stops)
+
+
+def _stops(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    return []
 
 
 class TextField(QLineEdit):

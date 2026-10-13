@@ -42,7 +42,7 @@ def make_theme() -> Theme:
 
 SAMPLES = {
     "label": [{"source": "cpu", "format": "{percent:.0f}"}, {"format": "x",
-               "gradient": ["#000000", "#ffffff"], "outline": "#000000",
+               "color": ["#000000", "#ffffff"], "outline": "#000000",
                "shadow": "#000000"},
               {"source": "time", "format": "{value:%H}"}],
     "gauge": [{"source": "memory"}, {"source": "disk"}],

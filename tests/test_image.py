@@ -108,8 +108,6 @@ def test_missing_and_bad_files(pictures: Path) -> None:
     (pictures / "junk.png").write_text("not a picture")
     with pytest.raises(PluginError, match="cannot read 'junk.png'"):
         widget(pictures, {"path": "junk.png"})
-    with pytest.raises(Exception, match="path"):
-        widget(pictures, {})
 
 
 def test_editing_the_picture_reloads(pictures: Path) -> None:
@@ -122,3 +120,145 @@ def test_editing_the_picture_reloads(pictures: Path) -> None:
     import os
     os.utime(pictures / "half.png", ns=(1, 1))
     assert app_module._stamp(theme) != before
+
+
+# -- pictures from a source: cover art --
+
+import base64  # noqa: E402
+import http.server  # noqa: E402
+import io  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+from akp02d import artwork, media  # noqa: E402
+from akp02d.plugins.base import set_dry_run  # noqa: E402
+
+
+def png_bytes(colour, size=(30, 30)) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", size, colour).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+def data_url(colour, padded=True) -> str:
+    encoded = base64.b64encode(png_bytes(colour)).decode()
+    return "data:image/png;base64," + (encoded if padded else encoded.rstrip("="))
+
+
+@pytest.fixture(autouse=True)
+def fresh_artwork():
+    artwork.clear()
+    yield
+    artwork.clear()
+
+
+def test_artwork_from_data_file_and_path(tmp_path: Path) -> None:
+    assert artwork.picture(data_url(RED)).getpixel((5, 5))[:3] == RED
+    assert artwork.picture(data_url(GREEN, padded=False)).getpixel((5, 5))[:3] == GREEN
+    cover = tmp_path / "my cover.png"
+    cover.write_bytes(png_bytes(BLUE))
+    url = "file://" + str(cover).replace(" ", "%20")
+    assert artwork.picture(url).getpixel((5, 5))[:3] == BLUE
+    assert artwork.picture(str(cover)).getpixel((5, 5))[:3] == BLUE
+    # A player that rewrites one file per track: the new picture is read.
+    cover.write_bytes(png_bytes(RED, (31, 31)))
+    assert artwork.picture(url).getpixel((5, 5))[:3] == RED
+    assert artwork.picture("") is None
+    assert artwork.picture("data:image/png;base64,bm90IGEgcGljdHVyZQ==") is None
+    assert artwork.picture("file:///no/such/cover.jpg") is None
+
+
+def test_artwork_download_never_blocks(tmp_path: Path) -> None:
+    body = png_bytes(GREEN)
+    release = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            release.wait(5)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/cover.png"
+        started = time.monotonic()
+        assert artwork.picture(url) is artwork.PENDING
+        assert artwork.picture(url) is artwork.PENDING     # one download, not two
+        assert time.monotonic() - started < 0.5
+        release.set()
+        end = time.monotonic() + 5
+        while (got := artwork.picture(url)) is artwork.PENDING and time.monotonic() < end:
+            time.sleep(0.02)
+        assert got.getpixel((5, 5))[:3] == GREEN
+    finally:
+        server.shutdown()
+
+
+class FakeSource:
+    def __init__(self) -> None:
+        self.art = ""
+
+    def read(self, now):
+        return 0.0, {"art": self.art}
+
+    def close(self) -> None:
+        pass
+
+
+def art_widget(path: Path, options: dict, monkeypatch):
+    monkeypatch.setattr(media, "installed", lambda: True)
+    set_dry_run(True)     # no playerctl: the source is swapped below
+    try:
+        w = widget(path, {"source": "media", **options}, size=(60, 60))
+    finally:
+        set_dry_run(False)
+    w._source.close()
+    w._source = fake = FakeSource()
+    return w, fake
+
+
+def test_cover_art_with_fallback(pictures: Path, monkeypatch) -> None:
+    Image.new("RGB", (20, 20), BLUE).save(pictures / "no-cover.png")
+    w, source = art_widget(pictures, {"path": "no-cover.png", "fit": "stretch"},
+                           monkeypatch)
+    centre = (30, 30)
+    assert w.render(0.0) and w.surface.getpixel(centre) == BLUE   # nothing playing
+    source.art = data_url(RED)
+    assert w.render(1.0) and w.surface.getpixel(centre) == RED
+    assert w.render(2.0) is False                                  # same cover: no redraw
+    # Next track's cover still downloading: the old one stays up.
+    source.art = "https://example.invalid/next.jpg"
+    monkeypatch.setattr(artwork, "picture",
+                        lambda url, real=artwork.picture: artwork.PENDING
+                        if url.startswith("https") else real(url))
+    assert w.render(3.0) is False and w.surface.getpixel(centre) == RED
+    source.art = data_url(GREEN)
+    assert w.render(4.0) and w.surface.getpixel(centre) == GREEN
+    source.art = ""                                                # stopped
+    assert w.render(5.0) and w.surface.getpixel(centre) == BLUE
+
+
+def test_cover_art_without_fallback(pictures: Path, monkeypatch) -> None:
+    w, source = art_widget(pictures, {}, monkeypatch)
+    w.render(0.0)
+    assert w.surface.getpixel((30, 30)) == BG
+    source.art = data_url(RED)
+    assert w.render(1.0) and w.surface.getpixel((30, 30)) == RED
+
+
+def test_needs_a_path_or_a_source(pictures: Path) -> None:
+    with pytest.raises(PluginError, match="needs a picture"):
+        widget(pictures, {})
+
+
+def test_playerctl_line_carries_art() -> None:
+    line = media.SEP.join(("Playing", "spotify", "1000000", "2000000", "A", "T", "Al",
+                           "https://i.scdn.co/image/abc"))
+    assert media.parse(line, 0.0).art == "https://i.scdn.co/image/abc"
+    assert media.parse(media.SEP.join(("Playing", "x", "0", "0", "A", "T", "Al")), 0.0).art == ""

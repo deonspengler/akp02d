@@ -90,7 +90,7 @@ class LabelWidget(Widget):
         self._source = o.source
         self._format = o.format
         _set_locale(o.locale, spec.id)
-        self._style = textfx.TextStyle.read(o, o.color)
+        self._style = textfx.TextStyle.read(o)
         # Resolved once: building a font per frame would cost more than
         # everything else this widget does put together.
         self._font = theme.font(o.font, o.size)
