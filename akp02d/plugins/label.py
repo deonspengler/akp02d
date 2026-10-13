@@ -67,7 +67,6 @@ class LabelWidget(Widget):
         string("locale", None, group="Text",
                doc="LC_TIME locale for day and month names, e.g. "
                    "en_US.UTF-8; process-wide, so every label must agree"),
-        color("color", "#ffffff", group="Text"),
         font(group="Text", doc="Theme-relative font file or a system "
                                "family; empty uses the theme's font"),
         integer("size", 24, 1, 512, group="Text", doc="Font size in pixels"),
@@ -75,7 +74,8 @@ class LabelWidget(Widget):
                doc="Text wider than the box: clip cuts it at the edge, "
                    "ellipsis ends it with …, shrink makes the font smaller "
                    "until it fits"),
-        *textfx.options(),
+        *textfx.fill_options(),
+        *textfx.effect_options(),
     )
 
     # Smallest size `fit = "shrink"` goes to; below it, the text is clipped.

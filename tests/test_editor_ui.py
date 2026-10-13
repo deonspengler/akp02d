@@ -146,3 +146,40 @@ def test_changing_source_drops_a_format_that_no_longer_fits(app, tmp_path: Path)
         window.undo.setClean()
         window.close()
         pump(app)
+
+
+def test_gradient_sets_color_aside(app, tmp_path: Path) -> None:
+    """`color` sits beside `gradient`, greyed while a gradient is set;
+    a colour-safe box carries no note, an unsafe one does."""
+    (tmp_path / "theme.toml").write_text(
+        '[theme]\norientation = "portrait"\n\n[[widget.label]]\n'
+        'x = 8\ny = 0\nwidth = 170\nheight = 50\nformat = "Hi"\n'
+        'color = "#ff8800"\ngradient = ["#fd44dd", "#11e3f5"]\n')
+    window = EditorWindow(ThemeDocument.open(tmp_path), config.Config())
+    try:
+        window.show()
+        ref = Ref("label", 1)
+        window._set_selection(ref)
+        pump(app, 0.2)
+
+        def colour_field():
+            return window.inspector.findChild(QtWidgets.QWidget, "opt.color")
+
+        def labels():
+            return [w.text() for w in window.inspector.findChildren(QtWidgets.QLabel)]
+
+        assert not colour_field().isEnabled()
+        names = [t for t in labels() if t in ("font", "size", "color", "gradient")]
+        assert names.index("gradient") == names.index("color") + 1
+        assert not any("olour-safe" in t for t in labels())
+
+        window._widget_edited(ref, "gradient", None)
+        pump(app, 0.2)
+        assert colour_field().isEnabled()
+
+        window._widget_edited(ref, "x", 9)
+        pump(app, 0.2)
+        assert any("is not colour-safe" in t for t in labels())
+    finally:
+        window.undo.setClean()
+        window.close()

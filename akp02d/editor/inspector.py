@@ -354,15 +354,12 @@ class Inspector(QWidget):
         for spin in spins.values():
             spin.valueChanged.connect(geometry_changed)
         form.addRow(grid)
-        status_row = QWidget()
-        status = QHBoxLayout(status_row)
-        status.setContentsMargins(0, 0, 0, 0)
-        orientation_name = "portrait" if axis == "x" else "landscape"
-        if aligned:
-            note = QLabel(f"✓ Colour-safe · {orientation_name} binds {axis}")
-            note.setObjectName("ok")
-            status.addWidget(note, 1)
-        else:
+        # Only a box that breaks the rule says anything: a safe one is the
+        # normal case, and snapping keeps it so.
+        if not aligned:
+            status_row = QWidget()
+            status = QHBoxLayout(status_row)
+            status.setContentsMargins(0, 0, 0, 0)
             nearest = layout.nearest_aligned(current, orientation, inverted)
             note = QLabel(f"{axis}={value} is not colour-safe"
                           + (f"; nearest {' or '.join(map(str, nearest))}" if nearest else ""))
@@ -373,7 +370,7 @@ class Inspector(QWidget):
             fix.clicked.connect(lambda: self.geometry_edited.emit(
                 ref, snap(current, orientation, inverted, screen)))
             status.addWidget(fix)
-        form.addRow(status_row)
+            form.addRow(status_row)
 
         fps = controls.NumberField(False, 0.001, 240.0)
         fps.setObjectName("opt.fps")
@@ -414,7 +411,8 @@ class Inspector(QWidget):
                       # clicked passes `checked` first: take it, so it never
                       # lands in `k` -- which would reset a key named False.
                       lambda _checked=False, k=option.key: self.widget_edited.emit(ref, k, None),
-                      doc, required=option.required)
+                      doc, required=option.required,
+                      inactive=option.inactive_reason(values))
 
         known = set(RESERVED) | {o.key for o in options}
         unknown = [k for k in entry if k not in known]
@@ -593,10 +591,16 @@ class Inspector(QWidget):
         return form
 
     def _row(self, form: QFormLayout, key: str, control: QWidget, explicit: bool,
-             reset, doc: str = "", required: bool = False) -> None:
+             reset, doc: str = "", required: bool = False,
+             inactive: str | None = None) -> None:
         name = QLabel(key + (" *" if required else ""))
         name.setMinimumWidth(84)
-        name.setStyleSheet(f"color: {style.MUTED if explicit else style.FAINT};")
+        name.setStyleSheet(f"color: {style.MUTED if explicit and not inactive else style.FAINT};")
+        if inactive:
+            # Set aside by another option: greyed, not hidden, so it is
+            # plain which of the two is in effect. The × stays usable.
+            doc = inactive + (f"\n\n{doc}" if doc else "")
+            control.setEnabled(False)
         if doc:
             name.setToolTip(doc)
             control.setToolTip(doc)

@@ -53,6 +53,9 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit {{
     padding: 3px 6px; color: {TEXT}; selection-background-color: #24425a; }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border-color: {ACCENT}; }}
 QLineEdit[invalid="true"] {{ border-color: {BAD}; }}
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {{
+    color: #5c6270; background: {PANEL}; border-color: #2a2f39;
+}}
 QComboBox QAbstractItemView {{ background: {FIELD}; border: 1px solid {BORDER};
                                selection-background-color: #24425a; }}
 QPushButton, QToolButton {{ background: {FIELD}; border: 1px solid {BORDER};

@@ -74,6 +74,8 @@ class Swatch(QToolButton):
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.isEnabled():
+            painter.setOpacity(0.25)   # set aside: still there, plainly not in use
         box = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         if self._colour is None:
             painter.setPen(QPen(QColor(style.FAINT), 1, Qt.PenStyle.DashLine))

@@ -1,7 +1,8 @@
 """Text effects: gradient fill, outline, and drop shadow or glow.
 
 Shared so every widget that draws text can offer the same options with
-the same names. A widget declares `options()` in its schema, builds a
+the same names. A widget declares `options()` in its schema (or
+`fill_options()` and `effect_options()` apart, to place them), builds a
 `TextStyle` from what it read, and draws through `draw()`.
 
 Everything is done with masks: the text is drawn once as a greyscale
@@ -26,19 +27,35 @@ from .schema import Option, choice, color, colors, integer, number
 RGB = tuple[int, int, int]
 
 
-def options(group: str = "Text", effects: str = "Effects") -> list[Option]:
-    """The options a text-drawing widget adds to its schema."""
-    has_gradient = lambda v: bool(v.get("gradient"))  # noqa: E731
-    has_outline = lambda v: v.get("outline") is not None  # noqa: E731
-    has_shadow = lambda v: v.get("shadow") is not None  # noqa: E731
+def _has_gradient(values) -> bool:
+    return bool(values.get("gradient"))
+
+
+def fill_options(fill: str = "#ffffff", group: str = "Text") -> list[Option]:
+    """How the letters are filled: `color`, or a gradient in its place.
+
+    Kept together, so a form shows the two choices side by side; while
+    a gradient is set, `color` is marked as set aside rather than hidden.
+    """
     return [
+        color("color", fill, group=group,
+              inactive=lambda v: "Not used while a gradient is set"
+              if _has_gradient(v) else None),
         colors("gradient", None, group=group,
                doc="Fill the text with a gradient instead of one colour; "
                    "empty uses `color`"),
         choice("gradient_direction", ("vertical", "horizontal"), "vertical",
-               group=group, when=has_gradient,
+               group=group, when=_has_gradient,
                doc="vertical runs top to bottom over the letters' height; "
                    "horizontal runs left to right across the text"),
+    ]
+
+
+def effect_options(effects: str = "Effects") -> list[Option]:
+    """Outline and shadow or glow."""
+    has_outline = lambda v: v.get("outline") is not None  # noqa: E731
+    has_shadow = lambda v: v.get("shadow") is not None  # noqa: E731
+    return [
         color("outline", None, group=effects,
               doc="A line around each letter, for reading over a busy "
                   "wallpaper; empty for none"),
@@ -54,6 +71,12 @@ def options(group: str = "Text", effects: str = "Effects") -> list[Option]:
                     "the widget's box, which clips it"),
         number("shadow_alpha", 0.6, 0.0, 1.0, group=effects, when=has_shadow),
     ]
+
+
+def options(fill: str = "#ffffff", group: str = "Text",
+            effects: str = "Effects") -> list[Option]:
+    """Everything a text-drawing widget adds to its schema."""
+    return [*fill_options(fill, group), *effect_options(effects)]
 
 
 @dataclass(slots=True)
