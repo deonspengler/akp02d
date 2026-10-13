@@ -248,6 +248,38 @@ Horizontal for a wide box, vertical (filling upward) for a tall one,
 unless `direction` says. `color_by = "level"` paints the whole fill one
 colour by how full it is instead of fixing the gradient along it.
 
+### Image
+
+```toml
+[[widget.image]]
+x = 136
+y = 280
+width = 190
+height = 190
+path = "logo.png"        # in the theme's folder
+fit = "contain"          # cover | stretch | none
+align = "center"         # top, bottom-left, ... which side or part is kept
+radius = 0               # rounded corners
+opacity = 1.0
+scaling = "smooth"       # "pixel" keeps pixel art crisp
+```
+
+`contain` shows all of the picture, as large as fits; `cover` fills the
+box and crops; `stretch` fills it exactly; `none` keeps the picture's
+own size. Transparent PNGs sit over the wallpaper.
+
+Animated GIF, WebP and PNG files play, looping, at the file's own frame
+timing (up to 30 fps unless `fps` says otherwise; `animate = false`
+shows the first frame). Frames are fitted once at load, so playing is a
+paste per frame and a still picture costs nothing after it is drawn. A
+long animation in a big box is thinned to an even spread of frames to
+keep memory in check, with a note in the log.
+
+Edit a picture in place and the daemon picks it up, like the wallpaper.
+In the editor, adding an image asks for the file first; one from
+elsewhere is copied into the theme's folder, so the theme stays one
+folder you can move or share.
+
 Any widget may lay its own `background` colour over the wallpaper at
 `alpha` opacity. Text is centred on its cap-height band, so digits and
 capitals sit true whatever the font.

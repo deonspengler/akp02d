@@ -55,6 +55,7 @@ import logging
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from PIL import Image
 
@@ -64,6 +65,7 @@ from . import layout, plugins, theme as theme_module
 from .config import Config
 from .plugins.base import Widget
 from .plugins.label import reset_locale
+from .schema import IMAGE
 from .table import SettingsError
 from .theme import Theme
 
@@ -194,11 +196,14 @@ class App:
         widgets = tuple(built)
         for widget in widgets:
             if widget.period < period:
-                log.warning(
-                    "%s asks for %g fps but the loop runs at %g; it will "
-                    "update every frame",
-                    widget.id, widget.fps, self.config.fps,
-                )
+                # A rate the widget picked itself (an animation's) is
+                # simply capped; only one the theme asked for is news.
+                if not getattr(widget, "fps_auto", False):
+                    log.warning(
+                        "%s asks for %g fps but the loop runs at %g; it will "
+                        "update every frame",
+                        widget.id, widget.fps, self.config.fps,
+                    )
                 widget.period = period
             log.debug("%s: (%d,%d) %dx%d at %g fps", widget.id, *widget.rect, widget.fps)
         # What the panel is showing, kept in step as widgets draw into
@@ -365,16 +370,18 @@ class App:
 
 
 def _stamp(theme: Theme) -> tuple:
-    """The file state a reload compares: theme.toml and the wallpaper.
+    """The file state a reload compares: theme.toml, the wallpaper, and
+    every picture a widget shows.
 
-    The wallpaper is found from the [theme] table as loaded, so a theme
-    that switches to a new file is caught by theme.toml changing, and a
-    wallpaper edited in place by its own stamp.
+    The files are found from the theme as loaded, so a theme that
+    switches to a new file is caught by theme.toml changing, and a
+    picture edited in place by its own stamp.
     """
     out = []
     files = [theme.path / "theme.toml"]
     if theme.wallpaper:
         files.append(theme.path / theme.wallpaper)
+    files.extend(theme.path / Path(name).expanduser() for name in _pictures(theme))
     for file in files:
         try:
             info = file.stat()
@@ -383,3 +390,16 @@ def _stamp(theme: Theme) -> tuple:
         else:
             out.append((info.st_mtime_ns, info.st_size))
     return tuple(out)
+
+
+def _pictures(theme: Theme) -> list[str]:
+    """The files widgets name in image options (an image widget's path)."""
+    names = []
+    for spec in theme.widgets:
+        cls = plugins.lookup(spec.plugin)
+        for option in (cls.schema if cls is not None else ()):
+            if option.kind == IMAGE:
+                value = spec.options.peek(option.key)
+                if isinstance(value, str):
+                    names.append(value)
+    return names

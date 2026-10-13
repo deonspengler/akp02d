@@ -63,6 +63,7 @@ __all__ = [
 STRING = "string"
 FORMAT = "format"      # a Python format string, filled from a source
 FONT = "font"          # a theme-relative file or a system family
+IMAGE = "image"        # an image file, relative to the theme's folder
 INTEGER = "integer"
 NUMBER = "number"
 BOOLEAN = "boolean"
@@ -167,13 +168,13 @@ class Option:
         default = self.default_for(values, spec)
         key, kind = self.key, self.kind
         if default is None and key not in table and kind not in (
-            STRING, FORMAT, FONT, SOURCE, SECTIONS
+            STRING, FORMAT, FONT, IMAGE, SOURCE, SECTIONS
         ):
             table.raw(key)  # mark it read; absent means "none"
             return None
         if default is None and kind in (INTEGER, NUMBER, COLOR):
             default = REQUIRED  # present, so it must be valid
-        if kind in (STRING, FORMAT, FONT):
+        if kind in (STRING, FORMAT, FONT, IMAGE):
             return table.string(key, default)
         if kind == INTEGER:
             return table.integer(key, default, *_bounds(self, int))
@@ -308,6 +309,10 @@ def text_format(key: str = "format", default: Any = None, **kw: Any) -> Option:
 
 def font(key: str = "font", **kw: Any) -> Option:
     return Option(key, FONT, None, **kw)
+
+
+def image(key: str = "path", default: Any = REQUIRED, **kw: Any) -> Option:
+    return Option(key, IMAGE, default, **kw)
 
 
 def integer(key: str, default: Any, low: int | None = None,

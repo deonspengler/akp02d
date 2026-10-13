@@ -13,6 +13,7 @@ from .base import (
 from . import bar as _bar  # noqa: F401  (registers "bar")
 from . import gauge as _gauge  # noqa: F401  (registers "gauge")
 from . import graph as _graph  # noqa: F401  (registers "graph")
+from . import image as _image  # noqa: F401  (registers "image")
 from . import label as _label  # noqa: F401  (registers "label")
 from . import spectrum as _spectrum  # noqa: F401  (registers "spectrum")
 

@@ -61,6 +61,11 @@ class Table:
     def fail(self, key: str, expected: str, value: Any) -> SettingsError:
         return SettingsError(f"{self.path(key)} must be {expected}, got {value!r}")
 
+    def peek(self, key: str, default: Any = None) -> Any:
+        """A value as written, without marking it read -- for tools that
+        look at a table someone else will read."""
+        return self._data.get(key, default)
+
     def raw(self, key: str, default: Any = None) -> Any:
         """Read a value with no checking, marking the key as read."""
         self._seen.add(key)

@@ -191,3 +191,40 @@ def test_gradient_sets_color_aside(app, tmp_path: Path) -> None:
     finally:
         window.undo.setClean()
         window.close()
+
+
+def test_add_image_asks_for_the_picture(app, tmp_path: Path, monkeypatch) -> None:
+    """Adding an image starts with the file: copied into the theme's
+    folder, and the box takes the picture's shape."""
+    from PIL import Image
+
+    theme = tmp_path / "theme"
+    shutil.copytree(Path(akp02d.__file__).parent / "themes" / "default", theme)
+    elsewhere = tmp_path / "pictures"
+    elsewhere.mkdir()
+    Image.new("RGB", (400, 200), (200, 40, 40)).save(elsewhere / "logo.png")
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(elsewhere / "logo.png"), "")))
+    window = EditorWindow(ThemeDocument.open(theme), config.Config())
+    try:
+        window.show()
+        pump(app, 0.2)
+        count = len(window.engine.slots)
+        window.add_widget("image")
+        pump(app, 0.3)
+        assert (theme / "logo.png").is_file()
+        assert len(window.engine.slots) == count + 1
+        slot = window.engine.slots[-1]
+        assert slot.plugin == "image" and slot.widget is not None
+        assert slot.rect.width == 200 and 96 <= slot.rect.height <= 104
+        path_field = window.inspector.findChild(QtWidgets.QLineEdit, "opt.path")
+        assert path_field is not None and path_field.text() == "logo.png"
+        # Cancelling the dialog adds nothing.
+        monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileName",
+                            staticmethod(lambda *a, **k: ("", "")))
+        window.add_widget("image")
+        pump(app, 0.2)
+        assert len(window.engine.slots) == count + 1
+    finally:
+        window.undo.setClean()
+        window.close()

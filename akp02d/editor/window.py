@@ -37,7 +37,7 @@ from .canvas import Box, Canvas
 from .controls import Segmented
 from .document import DocumentError, Ref, ThemeDocument
 from .engine import ERROR, Engine, Problem, snap
-from .inspector import Inspector
+from .inspector import Inspector, pick_image
 from . import style
 
 log = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ THEME = "theme"   # selection sentinel: the [theme] table
 
 DEFAULT_SIZES = {
     "label": (240, 48), "gauge": (160, 160), "graph": (320, 120), "spectrum": (320, 200),
-    "bar": (320, 48),
+    "bar": (320, 48), "image": (160, 160),
 }
 NEW_OPTIONS: dict[str, dict[str, Any]] = {
     "label": {"format": "New label", "size": 32},
@@ -54,6 +54,18 @@ NEW_OPTIONS: dict[str, dict[str, Any]] = {
 }
 
 PACKAGE_DIR = Path(akp02d.__file__).resolve().parent
+
+
+def picture_box(file: Path, longest: int = 200) -> tuple[int, int]:
+    """A new image widget's size: the picture's own, or scaled so its
+    longer side is `longest` -- the user resizes from there."""
+    try:
+        with Image.open(file) as picture:
+            width, height = picture.size
+    except (OSError, ValueError):
+        return DEFAULT_SIZES["image"]
+    scale = min(1.0, longest / max(width, height))
+    return max(8, round(width * scale)), max(8, round(height * scale))
 
 
 class _Edit(QUndoCommand):
@@ -524,6 +536,15 @@ class EditorWindow(QMainWindow):
 
     def add_widget(self, plugin: str) -> None:
         width, height = DEFAULT_SIZES.get(plugin, (200, 100))
+        extra: dict[str, Any] = {}
+        if plugin == "image":
+            # An image widget is its picture: ask for it first, and start
+            # the box at the picture's shape.
+            name = pick_image(self, self.document, "Choose picture")
+            if name is None:
+                return
+            extra["path"] = name
+            width, height = picture_box(self.document.directory / name)
         rect = self._free_spot(width, height)
         if rect is None:
             QMessageBox.information(self, "No room",
@@ -540,6 +561,7 @@ class EditorWindow(QMainWindow):
                     if names:
                         values[option.key] = "cpu" if "cpu" in names else names[0]
         values.update(NEW_OPTIONS.get(plugin, {}))
+        values.update(extra)
         ref = self.apply(f"Add {plugin}", lambda doc: doc.add_widget(plugin, values))
         if ref is not None:
             self._set_selection(ref)

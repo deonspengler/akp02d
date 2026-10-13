@@ -154,11 +154,16 @@ def plugin_icon(plugin: str, colour: str = MUTED, size: int = 16) -> QIcon:
     elif plugin == "bar":
         path.addRoundedRect(QRectF(2, 6, 12, 4.5), 2, 2)
         path.moveTo(4, 8.25); path.lineTo(9, 8.25)
-    elif plugin == "theme":
+    elif plugin == "image":
         path.addRoundedRect(QRectF(2, 3, 12, 10), 1.5, 1.5)
-        path.addEllipse(QPointF(6, 6.5), 1.3, 1.3)
-        path.moveTo(2.5, 12); path.lineTo(6, 8.5); path.lineTo(8.5, 11)
-        path.lineTo(10.5, 9); path.lineTo(13.5, 12)
+        path.moveTo(2.5, 12); path.lineTo(6.5, 7.5); path.lineTo(9, 10)
+        path.lineTo(10.5, 8.5); path.lineTo(13.5, 12)
+        path.addEllipse(QPointF(10.5, 5.8), 1.1, 1.1)
+    elif plugin == "theme":
+        # Settings: three sliders.
+        for y, knob in ((4, 10.5), (8, 5.5), (12, 9)):
+            path.moveTo(2.5, y); path.lineTo(13.5, y)
+            path.addEllipse(QPointF(knob, y), 1.4, 1.4)
     else:
         path.addRoundedRect(QRectF(3, 3, 10, 10), 2, 2)
     painter.drawPath(path)

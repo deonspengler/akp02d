@@ -27,7 +27,7 @@ from .. import layout, sources
 from ..layout import Rect
 from ..plugins import BASE, lookup
 from ..schema import (
-    BOOLEAN, CHOICE, COLOR, COLORS, FONT, FORMAT, INTEGER, NUMBER, SECTIONS,
+    BOOLEAN, CHOICE, COLOR, COLORS, FONT, FORMAT, IMAGE, INTEGER, NUMBER, SECTIONS,
     SOURCE, STRING, Auto, Option, Schema, Values,
 )
 from ..table import REQUIRED
@@ -80,6 +80,40 @@ def default_label(option: Option, values: Values, spec: Any) -> str:
     if isinstance(option.default, (int, float)) and not isinstance(option.default, bool):
         return controls._number_text(option.default)
     return str(option.default)
+
+
+IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)"
+
+
+def pick_image(parent: QWidget, document: ThemeDocument, title: str) -> str | None:
+    """Ask for a picture; return its name relative to the theme's folder.
+
+    A picture from elsewhere is copied in beside theme.toml, so the theme
+    stays self-contained -- it can be moved or shared as one folder.
+    """
+    folder = document.directory
+    if folder is None:
+        QMessageBox.information(parent, "Save first",
+                                "Save the theme to a folder first; pictures are "
+                                "stored beside theme.toml.")
+        return None
+    name, _ = QFileDialog.getOpenFileName(parent, title, str(folder), IMAGE_FILTER)
+    if not name:
+        return None
+    chosen = Path(name)
+    try:
+        relative = chosen.resolve().relative_to(folder.resolve())
+    except ValueError:
+        target = folder / chosen.name
+        if target.exists() and target.resolve() != chosen.resolve():
+            answer = QMessageBox.question(
+                parent, "Replace file?",
+                f"{target.name} already exists in the theme folder. Replace it?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return None
+        shutil.copy2(chosen, target)
+        relative = Path(chosen.name)
+    return relative.as_posix()
 
 
 class Inspector(QWidget):
@@ -266,31 +300,9 @@ class Inspector(QWidget):
         self._set_footer(problems, count)
 
     def _choose_wallpaper(self, document: ThemeDocument) -> None:
-        folder = document.directory
-        if folder is None:
-            QMessageBox.information(self, "Save first",
-                                    "Save the theme to a folder first; the wallpaper "
-                                    "is stored beside theme.toml.")
-            return
-        name, _ = QFileDialog.getOpenFileName(
-            self, "Choose wallpaper", str(folder),
-            "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
-        if not name:
-            return
-        chosen = Path(name)
-        try:
-            relative = chosen.resolve().relative_to(folder.resolve())
-        except ValueError:
-            target = folder / chosen.name
-            if target.exists() and target.resolve() != chosen.resolve():
-                answer = QMessageBox.question(
-                    self, "Replace file?",
-                    f"{target.name} already exists in the theme folder. Replace it?")
-                if answer != QMessageBox.StandardButton.Yes:
-                    return
-            shutil.copy2(chosen, target)
-            relative = Path(chosen.name)
-        self.theme_edited.emit("wallpaper", relative.as_posix())
+        name = pick_image(self, document, "Choose wallpaper")
+        if name is not None:
+            self.theme_edited.emit("wallpaper", name)
 
     # -- a widget --
 
@@ -375,8 +387,13 @@ class Inspector(QWidget):
         fps = controls.NumberField(False, 0.001, 240.0)
         fps.setObjectName("opt.fps")
         default_fps = cls.default_fps if cls is not None else 1.0
-        fps.set_value(entry.get("fps"), default_fps,
-                      f"{default_fps:g} (default)")
+        shown = f"{default_fps:g} (default)"
+        built = slot.widget if slot is not None else None
+        if built is not None and getattr(built, "fps_auto", False):
+            # An animation picks its own rate from the file.
+            default_fps = built.fps
+            shown = f"{built.fps:.3g} (from the file)"
+        fps.set_value(entry.get("fps"), default_fps, shown)
         if fps.slider is not None:
             fps.slider.hide()
         fps.changed.connect(lambda v: self.widget_edited.emit(ref, "fps", v))
@@ -500,6 +517,23 @@ class Inspector(QWidget):
             field.set_value(value, "" if label == "none" else label)
             field.changed.connect(emit)
             control = field
+        elif kind == IMAGE:
+            holder = QWidget()
+            row = QHBoxLayout(holder)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(4)
+            field = controls.TextField()
+            field.setObjectName(f"opt.{key}")
+            field.set_value(value, label)
+            field.changed.connect(emit)
+            browse = QPushButton("Choose…")
+            browse.clicked.connect(lambda _c=False: (
+                name := pick_image(self, document, "Choose picture")) and emit(name))
+            row.addWidget(field, 1)
+            row.addWidget(browse)
+            holder.setFocusProxy(field)
+            holder.setObjectName(f"opt.{key}.row")
+            control = holder
         elif kind == FONT:
             field = controls.FontField(document.directory)
             field.set_value(value, "theme font")
