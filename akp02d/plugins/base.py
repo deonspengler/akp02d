@@ -122,7 +122,16 @@ class Widget:
         raise NotImplementedError
 
     def close(self) -> None:
-        """Release anything the widget opened. Optional."""
+        """Release anything the widget opened.
+
+        By default, its source: one may hold a shared child process (a
+        media player's), which must be let go when the widget goes --
+        on a theme reload, or an editor rebuilding it. A plugin that
+        overrides this and has a `_source` should call super().close().
+        """
+        source = getattr(self, "_source", None)
+        if source is not None:
+            source.close()
 
 
 # --check builds every widget to validate it, but a widget that starts a

@@ -37,7 +37,9 @@ import time
 from typing import TYPE_CHECKING
 
 from .. import sources, textfx
-from ..schema import Auto, Schema, color, font, integer, source, string, text_format
+from ..schema import (
+    Auto, Schema, choice, color, font, integer, source, string, text_format,
+)
 from .base import PluginError, Widget, WidgetSpec, register
 
 if TYPE_CHECKING:
@@ -69,11 +71,18 @@ class LabelWidget(Widget):
         font(group="Text", doc="Theme-relative font file or a system "
                                "family; empty uses the theme's font"),
         integer("size", 24, 1, 512, group="Text", doc="Font size in pixels"),
+        choice("fit", ("clip", "ellipsis", "shrink"), "clip", group="Text",
+               doc="Text wider than the box: clip cuts it at the edge, "
+                   "ellipsis ends it with …, shrink makes the font smaller "
+                   "until it fits"),
         *textfx.options(),
     )
 
-    __slots__ = ("_anchor_xy", "_band", "_font", "_format", "_last", "_source",
-                 "_style")
+    # Smallest size `fit = "shrink"` goes to; below it, the text is clipped.
+    MIN_SIZE = 8
+
+    __slots__ = ("_anchor_xy", "_band", "_fit", "_font", "_font_name", "_format",
+                 "_last", "_layouts", "_size", "_source", "_style", "_theme")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
         super().__init__(spec, theme)
@@ -85,18 +94,12 @@ class LabelWidget(Widget):
         # Resolved once: building a font per frame would cost more than
         # everything else this widget does put together.
         self._font = theme.font(o.font, o.size)
+        self._font_name, self._size, self._theme = o.font, o.size, theme
+        self._fit = o.fit
         spec.options.reject_unknown()
 
-        width, height = spec.rect.size
-        ascent, _ = self._font.getmetrics()
-        cap = self._font.getbbox("H")
-        baseline = (height + (cap[3] - cap[1])) // 2
-        # "ma" anchors on the ascender line, which is `ascent` above the
-        # baseline -- Pillow cannot anchor on the baseline directly.
-        self._anchor_xy = (width // 2, baseline - ascent)
-        # Where a vertical gradient runs: the cap band, so it sits on the
-        # letters whatever the text is.
-        self._band = (baseline - (cap[3] - cap[1]), baseline)
+        self._layouts: dict[int, tuple] = {}
+        self._anchor_xy, self._band = self._layout(self._font, o.size)
         self._last: str | None = None
         # Format against a real sample now, so a format that does not fit
         # its source fails at load rather than on the first frame.
@@ -115,14 +118,63 @@ class LabelWidget(Widget):
                 f"{', '.join(sorted(fields))}"
             ) from exc
 
+    def _layout(self, font, size: int) -> tuple:
+        """Where text in `font` goes: anchor point and cap band."""
+        cached = self._layouts.get(size)
+        if cached is not None:
+            return cached
+        width, height = self.surface.size
+        ascent, _ = font.getmetrics()
+        cap = font.getbbox("H")
+        baseline = (height + (cap[3] - cap[1])) // 2
+        # "ma" anchors on the ascender line, which is `ascent` above the
+        # baseline -- Pillow cannot anchor on the baseline directly.
+        anchor_xy = (width // 2, baseline - ascent)
+        # Where a vertical gradient runs: the cap band, so it sits on the
+        # letters whatever the text is.
+        band = (baseline - (cap[3] - cap[1]), baseline)
+        self._layouts[size] = (anchor_xy, band)
+        return anchor_xy, band
+
+    def _fitted(self, text: str):
+        """The text and font to draw, after `fit` has had its say."""
+        font = self._font
+        room = self.surface.width
+        if self._fit == "clip" or font.getlength(text) <= room:
+            return text, font, self._size
+        if self._fit == "ellipsis":
+            # The longest prefix that fits with the ellipsis after it.
+            low, high = 0, len(text)
+            while low < high:
+                middle = (low + high + 1) // 2
+                if font.getlength(text[:middle].rstrip() + "…") <= room:
+                    low = middle
+                else:
+                    high = middle - 1
+            return text[:low].rstrip() + "…", font, self._size
+        # shrink: the largest size that fits. Fonts are cached by the
+        # theme, so trying sizes costs a measure each, not a font load.
+        low, high = self.MIN_SIZE, self._size
+        while low < high:
+            middle = (low + high + 1) // 2
+            if self._theme.font(self._font_name, middle).getlength(text) <= room:
+                low = middle
+            else:
+                high = middle - 1
+        return text, self._theme.font(self._font_name, low), low
+
     def render(self, now: float) -> bool:
         text = self.text(now)
         if text == self._last:
             return False
         self._last = text
         self.clear()
-        self._style.draw(self.surface, self._anchor_xy, text, self._font, "ma",
-                         self._band)
+        shown, font, size = self._fitted(text)
+        if size == self._size:
+            anchor_xy, band = self._anchor_xy, self._band
+        else:
+            anchor_xy, band = self._layout(font, size)
+        self._style.draw(self.surface, anchor_xy, shown, font, "ma", band)
         return True
 
 

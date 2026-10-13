@@ -60,6 +60,9 @@ class Source:
     def __init__(self, options: Table, widget: str) -> None:
         self.schema.read(options)
 
+    def close(self) -> None:
+        """Let go of anything held open. Most sources hold nothing."""
+
     def read(self, now: float) -> tuple[float | None, dict[str, Any]]:
         """Return (value in 0..1 or None, fields for formatting).
 
@@ -429,6 +432,97 @@ def _interface_address(name: str) -> str | None:
     return socket.inet_ntoa(packed[20:24])
 
 
+class MediaSource(Source):
+    """What a media player is playing, via playerctl.
+
+    Every widget following the same player shares one playerctl process
+    (see media.py), so a title, an artist and a progress bar cost one
+    child between them. `value` is the track's progress, 0..1, for a bar
+    or gauge; the rest are fields for labels.
+    """
+
+    kind = SCALAR
+    schema = Schema(
+        string("player", None, group="Data",
+               doc="Which player to follow, e.g. spotify, mpv, firefox; empty "
+                   "follows whichever is active",
+               suggest=lambda values: [(name, name) for name in _media().players()]),
+        string("idle", "nothing playing", group="Data",
+               doc="The title shown when nothing is playing"),
+    )
+    fields = ("title", "artist", "album", "status", "player", "position", "length",
+              "remaining", "position_s", "length_s", "value", "percent")
+    formats = ("{title}", "{artist} · {title}", "{artist}", "{album}",
+               "{position} / {length}", "{remaining}", "{status}")
+    summary = "What a media player is playing (needs playerctl)"
+
+    def __init__(self, options: Table, widget: str) -> None:
+        o = self.schema.read(options)
+        self._player = o.player
+        self._idle = o.idle
+        self._stream = None
+        self.unavailable: str | None = None
+        if not _media().installed():
+            message = (f"widget {widget!r}: playerctl is not installed "
+                       f"(pacman -S playerctl)")
+            if wrap is None:
+                raise SourceError(message)
+            self.unavailable = message
+
+    def _may_start(self) -> bool:
+        if self.unavailable or wrap is not None:
+            return False   # a tool is standing in: no child process
+        from .plugins.base import dry_run
+        return not dry_run()   # --check validates, it does not start things
+
+    def read(self, now: float) -> tuple[float, dict[str, Any]]:
+        media = _media()
+        if self._stream is None and self._may_start():
+            self._stream = media.acquire(self._player)
+        track = self._stream.read(now) if self._stream is not None else media.Track(at=now)
+        fields = media_fields(track, now, self._idle)
+        return fields["value"], fields
+
+    def close(self) -> None:
+        if self._stream is not None:
+            _media().release(self._stream)
+            self._stream = None
+
+
+def _media():
+    from . import media
+    return media
+
+
+def _clock(seconds: float) -> str:
+    seconds = int(seconds)
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def media_fields(track, now: float, idle: str) -> dict[str, Any]:
+    """Format fields for a track, as of `now`."""
+    position = track.position_now(now)
+    length = track.length
+    progress = min(1.0, position / length) if length else 0.0
+    nothing = track.status == "Stopped" or not (track.title or track.artist)
+    return {
+        "title": idle if nothing else track.title,
+        "artist": "" if nothing else track.artist,
+        "album": "" if nothing else track.album,
+        "status": track.status,
+        "player": track.player,
+        "position": _clock(position) if not nothing else "",
+        "length": _clock(length) if length and not nothing else "",
+        "remaining": f"-{_clock(max(0.0, length - position))}" if length and not nothing else "",
+        "position_s": position,
+        "length_s": length,
+        "value": 0.0 if nothing else progress,
+        "percent": 0.0 if nothing else progress * 100,
+    }
+
+
 def temperature_fields(celsius: float, chip: str, label: str) -> dict[str, Any]:
     return {
         "value": celsius,
@@ -631,6 +725,7 @@ _REGISTRY: dict[str, type[Source]] = {
     "uptime": UptimeSource,
     "kernel": KernelSource,
     "ip": IpSource,
+    "media": MediaSource,
 }
 
 

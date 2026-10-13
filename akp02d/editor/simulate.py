@@ -25,7 +25,15 @@ from typing import Any
 from .. import sources
 from ..plugins import cava
 
-KNOWN = ("time", "cpu", "memory", "disk", "network", "temperature")
+KNOWN = ("time", "cpu", "memory", "disk", "network", "temperature", "media")
+
+# A made-up playlist, so a now-playing block can be designed in silence.
+# One long title, to show what `fit` does with it.
+_PLAYLIST = (
+    ("Synthwave Collective", "Neon Skyline", "Night Drive", 213),
+    ("Lumen", "Afterglow (Extended Midnight Mix)", "Static Hearts", 187),
+    ("Kairo", "Grid Runner", "Arcade Dreams", 246),
+)
 
 
 def _wave(now: float, *periods: float) -> float:
@@ -93,10 +101,27 @@ class StandIn:
         self.range = getattr(real, "range", (0.0, 1.0))
         self.formats = getattr(real, "formats", ())
 
+    def close(self) -> None:
+        self.real.close()
+
     def read(self, now: float) -> tuple[Any, dict[str, Any]]:
         name = self.name
         if name not in KNOWN or name == "time":
             return self.real.read(now)
+        if name == "media":
+            from .. import media
+
+            cycle = sum(track[3] for track in _PLAYLIST)
+            at = now % cycle
+            for artist, title, album, length in _PLAYLIST:
+                if at < length:
+                    break
+                at -= length
+            track = media.Track(status="Playing", player="simulated", artist=artist,
+                                title=title, album=album, length=float(length),
+                                position=at, at=now)
+            fields = sources.media_fields(track, now, getattr(self.real, "_idle", ""))
+            return fields["value"], fields
         if name == "network":
             # Mostly idle with bursts, spanning the orders of magnitude a
             # log-scale graph is for.

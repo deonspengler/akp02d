@@ -164,12 +164,47 @@ which is why static text needs no plugin of its own.
 | `uptime` | text | `value` (`3d 4h 12m`), `days`, `hours`, `minutes`, `total_hours` |
 | `kernel` | text | `value` (release), `version`, `machine` |
 | `ip` | text | `value` (IPv4 of the default route, or of `interface`) |
+| `media` | 0..1 (track progress) | `title`, `artist`, `album`, `status`, `player`, `position`, `length`, `remaining`, `position_s`, `length_s`, `percent` (`player`, `idle`) |
 
 Gauges, bars and graphs draw the numeric kinds; labels show anything.
 A label with a source and no `format` uses that source's usual one --
 `{short}` for hostname, `{celsius:.0f}°C` for temperature -- and the
 editor offers each source's ready-made formats in a dropdown, previewed
 with the current reading.
+
+### Now playing
+
+`media` reads [playerctl](https://github.com/altdesktop/playerctl), so
+it works with any MPRIS player: Spotify, mpv, a browser, ... A
+now-playing block is a few widgets sharing one source:
+
+```toml
+[[widget.label]]
+source = "media"
+format = "{title}"
+fit = "ellipsis"         # or "shrink", or "clip" (the default)
+idle = "nothing playing" # shown as the title when no player is running
+
+[[widget.label]]
+source = "media"
+format = "{artist} · {album}"
+
+[[widget.bar]]
+source = "media"         # fills as the track plays
+format = "{position} / {length}"
+```
+
+Every widget following the same player shares a single
+`playerctl --follow` process, which reports only when the track or the
+play state changes; the position is counted forward locally and checked
+against the player every few seconds, so a seek shows up within that.
+`player = "spotify"` follows one player (the editor lists the running
+ones); without it, whichever is active. In the editor a made-up playlist
+plays, so a layout can be designed in silence.
+
+A label's `fit` says what to do with text wider than its box: `clip` it,
+cut it short with an `ellipsis`, or `shrink` the font until it fits
+(down to 8 px, then clipped).
 
 ### Label effects
 
