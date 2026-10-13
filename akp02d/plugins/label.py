@@ -37,7 +37,7 @@ import time
 from typing import TYPE_CHECKING
 
 from .. import sources, textfx
-from ..schema import Schema, color, font, integer, source, string, text_format
+from ..schema import Auto, Schema, color, font, integer, source, string, text_format
 from .base import PluginError, Widget, WidgetSpec, register
 
 if TYPE_CHECKING:
@@ -56,7 +56,10 @@ class LabelWidget(Widget):
     schema = Schema(
         source(accepts=(sources.SCALAR, sources.TEXT, sources.MOMENT),
                doc="Where the value comes from; leave empty for fixed text"),
-        text_format("format", "", group="Data",
+        text_format("format",
+                    Auto(lambda v, spec: sources.default_format(v.get("source")) or "",
+                         "the source's usual format"),
+                    group="Data",
                     doc="Python format string filled from the source's "
                         "fields; with no source it is drawn as written"),
         string("locale", None, group="Text",

@@ -53,6 +53,9 @@ class Source:
     # The range a widget draws `value` against unless the theme sets its
     # own min and max. Fractions by default; a temperature is degrees.
     range: tuple[float, float] = (0.0, 1.0)
+    # Ready-made format strings, the first used when a label names the
+    # source but no format. Offered by editors as suggestions.
+    formats: tuple[str, ...] = ("{value}",)
 
     def __init__(self, options: Table, widget: str) -> None:
         self.schema.read(options)
@@ -74,6 +77,7 @@ class TimeSource(Source):
     kind = MOMENT
     fields = ("value",)
     summary = "The local time; format it with strftime codes, e.g. {value:%H:%M}"
+    formats = ("{value:%H:%M:%S}", "{value:%H:%M}", "{value:%I:%M %p}", "{value:%a, %d %b %Y}", "{value:%A}", "{value:%d/%m/%Y}",)
 
     def read(self, now: float) -> tuple[None, dict[str, Any]]:
         return None, {"value": datetime.now()}
@@ -90,6 +94,7 @@ class CpuSource(Source):
     kind = SCALAR
     fields = ("value", "percent")
     summary = "Busy fraction of all CPUs since the last read"
+    formats = ("{percent:.0f}%", "CPU {percent:.0f}%",)
 
     def __init__(self, options: Table, widget: str) -> None:
         self._previous = _cpu_times()
@@ -116,6 +121,7 @@ class MemorySource(Source):
     fields = ("value", "percent", "used", "total", "available", "used_gb",
               "total_gb")
     summary = "Used fraction of physical memory"
+    formats = ("{percent:.0f}%", "{used_gb:.1f}/{total_gb:.0f}G", "{used_gb:.1f}G used",)
 
     def read(self, now: float) -> tuple[float, dict[str, Any]]:
         info = _meminfo()
@@ -151,6 +157,7 @@ class DiskSource(Source):
     fields = ("value", "percent", "used", "free", "total", "used_gb",
               "free_gb", "total_gb")
     summary = "Used fraction of a filesystem"
+    formats = ("{percent:.0f}%", "{free_gb:.0f}G free", "{used_gb:.0f}/{total_gb:.0f}G",)
 
     def __init__(self, options: Table, widget: str) -> None:
         self._path = self.schema.read(options).path
@@ -196,6 +203,7 @@ class NetworkSource(Source):
     )
     fields = ("up", "down", "up_kb", "down_kb", "up_mb", "down_mb")
     summary = "Bytes per second sent (up) and received (down)"
+    formats = ("↓{down_mb:.1f} ↑{up_mb:.1f} MB/s", "↓{down_kb:.0f} KB/s", "↑{up_kb:.0f} KB/s",)
 
     def __init__(self, options: Table, widget: str) -> None:
         self._name = self.schema.read(options).interface
@@ -255,6 +263,7 @@ class TemperatureSource(Source):
     fields = ("value", "celsius", "fahrenheit", "sensor", "sensor_label")
     range = (20.0, 100.0)
     summary = "A temperature sensor in degrees C (CPU unless told otherwise)"
+    formats = ("{celsius:.0f}°C", "{celsius:.1f}°C", "{fahrenheit:.0f}°F", "{sensor} {celsius:.0f}°C",)
 
     def __init__(self, options: Table, widget: str) -> None:
         o = self.schema.read(options)
@@ -296,6 +305,7 @@ class HostnameSource(Source):
     kind = TEXT
     fields = ("value", "short")
     summary = "This machine's name; {short} drops the domain"
+    formats = ("{short}", "{value}",)
 
     def read(self, now: float) -> tuple[None, dict[str, Any]]:
         name = socket.gethostname()
@@ -312,6 +322,7 @@ class UptimeSource(Source):
     kind = TEXT
     fields = ("value", "days", "hours", "minutes", "seconds", "total_hours")
     summary = "Time since boot, e.g. 3d 4h 12m"
+    formats = ("{value}", "up {value}", "{days}d {hours}h", "{total_hours}h",)
 
     def read(self, now: float) -> tuple[None, dict[str, Any]]:
         with open("/proc/uptime", "rb") as handle:
@@ -340,6 +351,7 @@ class KernelSource(Source):
     kind = TEXT
     fields = ("value", "release", "version", "machine", "system")
     summary = "The running kernel's release, e.g. 6.11.2-arch1-1"
+    formats = ("{value}", "{system} {release}",)
 
     def read(self, now: float) -> tuple[None, dict[str, Any]]:
         info = os.uname()
@@ -372,6 +384,7 @@ class IpSource(Source):
     )
     fields = ("value", "interface")
     summary = "Local IPv4 address, of the default route or a named interface"
+    formats = ("{value}",)
 
     def __init__(self, options: Table, widget: str) -> None:
         o = self.schema.read(options)
@@ -662,6 +675,27 @@ def resolve(options: Table, widget: str, accepts: tuple[str, ...]) -> Source | N
 
 def available() -> tuple[str, ...]:
     return tuple(sorted(_REGISTRY))
+
+
+def default_format(source) -> str | None:
+    """The format a label uses for `source` (an instance, class or
+    stand-in) when the theme gives none."""
+    formats = getattr(source, "formats", None)
+    return formats[0] if formats else None
+
+
+def format_fields(text: str) -> set[str] | None:
+    """The field names a format string uses, or None if it is not one."""
+    import string as string_module
+
+    try:
+        return {
+            name.split(".")[0].split("[")[0]
+            for _, name, _, _ in string_module.Formatter().parse(text)
+            if name is not None
+        }
+    except ValueError:
+        return None
 
 
 def lookup(name: str) -> type[Source] | None:

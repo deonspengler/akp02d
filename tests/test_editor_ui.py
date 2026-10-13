@@ -90,3 +90,59 @@ def test_no_stray_windows(app, tmp_path: Path) -> None:
         window.undo.setClean()
         window.close()
         pump(app)
+
+
+def _window(app, tmp_path):
+    theme = tmp_path / "theme"
+    shutil.copytree(Path(akp02d.__file__).parent / "themes" / "default", theme)
+    window = EditorWindow(ThemeDocument.open(theme), config.Config())
+    window.resize(1200, 800)
+    window.show()
+    pump(app, 0.3)
+    return window
+
+
+def test_reset_button_removes_the_key(app, tmp_path: Path) -> None:
+    window = _window(app, tmp_path)
+    try:
+        window._set_selection(Ref("label", 1))
+        pump(app, 0.2)
+        field = window.inspector.scroll.widget().findChild(QtWidgets.QWidget, "opt.size")
+        reset = [b for b in field.parentWidget().findChildren(QtWidgets.QToolButton)
+                 if b.text() == "×"][0]
+        assert window.document.entry(Ref("label", 1))["size"] == 32
+        reset.click()
+        pump(app, 0.2)
+        assert "size" not in window.document.entry(Ref("label", 1))
+    finally:
+        window.undo.setClean()
+        window.close()
+        pump(app)
+
+
+def test_changing_source_drops_a_format_that_no_longer_fits(app, tmp_path: Path) -> None:
+    window = _window(app, tmp_path)
+    try:
+        # Fixed text ignores a source: dropped, so the source's default shows.
+        window._widget_edited(Ref("label", 1), "source", "hostname")
+        pump(app, 0.2)
+        assert "format" not in window.document.entry(Ref("label", 1))
+        slot = next(s for s in window.engine.slots if s.id == "label#1")
+        assert slot.widget.text(0.0) == __import__("socket").gethostname().split(".")[0]
+        # Fields the new source lacks: dropped. One undo restores both keys.
+        window._widget_edited(Ref("gauge", 1), "source", "temperature")
+        pump(app, 0.2)
+        assert "format" not in window.document.entry(Ref("gauge", 1))
+        window.undo.undo()
+        pump(app, 0.2)
+        entry = window.document.entry(Ref("gauge", 1))
+        assert entry["source"] == "memory" and entry["format"].startswith("{used_gb")
+        # A format the new source can fill stays: disk has used_gb and
+        # total_gb too.
+        window._widget_edited(Ref("gauge", 1), "source", "disk")
+        pump(app, 0.2)
+        assert window.document.entry(Ref("gauge", 1))["format"] == "{used_gb:.0f}/{total_gb:.0f}G"
+    finally:
+        window.undo.setClean()
+        window.close()
+        pump(app)

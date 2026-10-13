@@ -81,13 +81,14 @@ class StandIn:
     with history the moment it is built.
     """
 
-    __slots__ = ("kind", "name", "range", "real")
+    __slots__ = ("formats", "kind", "name", "range", "real")
 
     def __init__(self, real: sources.Source, name: str) -> None:
         self.real = real
         self.name = name
         self.kind = real.kind
         self.range = getattr(real, "range", (0.0, 1.0))
+        self.formats = getattr(real, "formats", ())
 
     def read(self, now: float) -> tuple[Any, dict[str, Any]]:
         name = self.name

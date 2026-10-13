@@ -410,7 +410,9 @@ class Inspector(QWidget):
             if isinstance(option.default, Auto):
                 doc = (doc + "\n\n" if doc else "") + f"Default: {option.default.describe}."
             self._row(form, option.key, control, explicit,
-                      lambda k=option.key: self.widget_edited.emit(ref, k, None),
+                      # clicked passes `checked` first: take it, so it never
+                      # lands in `k` -- which would reset a key named False.
+                      lambda _checked=False, k=option.key: self.widget_edited.emit(ref, k, None),
                       doc, required=option.required)
 
         known = set(RESERVED) | {o.key for o in options}
@@ -461,24 +463,32 @@ class Inspector(QWidget):
             column = QVBoxLayout(holder)
             column.setContentsMargins(0, 0, 0, 0)
             column.setSpacing(3)
-            field = controls.TextField(mono=True)
-            field.setObjectName(f"opt.{key}")
-            holder.setFocusProxy(field)
-            field.set_value(value, "" if label in ("none", "") else label)
-            field.changed.connect(emit)
-            column.addWidget(field)
             source_name = entry.get("source")
             source_cls = sources.lookup(source_name) if isinstance(source_name, str) else None
+            live = self._fields(slot)
+            presets = []
+            for preset in (source_cls.formats if source_cls is not None else ()):
+                shown = _format(preset, live)
+                presets.append((preset, f"{preset}    → {shown}" if shown else preset))
+            field = controls.SuggestField(mono=True)
+            field.setObjectName(f"opt.{key}")
+            holder.setFocusProxy(field)
+            default_format = values.get(key) if isinstance(option.default, Auto) else None
+            field.set_value(value, presets,
+                            default_format or ("" if label in ("none", "") else label))
+            field.changed.connect(emit)
+            column.addWidget(field)
             if source_cls is not None:
                 sample = QLabel()
                 sample.setObjectName("hint")
                 sample.setWordWrap(True)
                 sample.setTextFormat(Qt.TextFormat.RichText)
                 column.addWidget(sample)
-                if slot is not None:
-                    self._samples.append((sample, slot, field.text() or ""))
                 sample.setProperty("fields", ", ".join(source_cls.fields))
-                self._sample(sample, slot, field.text())
+                # What is drawn: the typed format, else the default one.
+                current = lambda f=field, d=default_format: f.currentText().strip() or d or ""
+                self._samples.append((sample, slot, current))
+                self._sample(sample, slot, current())
             control = holder
         elif kind == STRING and option.suggest is not None:
             field = controls.SuggestField()
@@ -535,13 +545,22 @@ class Inspector(QWidget):
             control.setObjectName(f"opt.{key}")
         return control
 
+    @staticmethod
+    def _fields(slot: Slot | None) -> dict[str, Any] | None:
+        source = getattr(slot.widget, "_source", None) if slot is not None and slot.widget else None
+        if source is None:
+            return None
+        try:
+            return source.read(time.monotonic())[1]
+        except Exception:  # noqa: BLE001
+            return None
+
     def _sample(self, label: QLabel, slot: Slot | None, fmt: str) -> None:
         fields_text = label.property("fields") or ""
         shown = ""
-        source = getattr(slot.widget, "_source", None) if slot is not None and slot.widget else None
-        if source is not None and fmt:
+        fields = self._fields(slot)
+        if fields is not None and fmt:
             try:
-                _, fields = source.read(time.monotonic())
                 shown = fmt.format(**fields)
             except Exception as exc:  # noqa: BLE001
                 shown = f"<span style='color:{style.BAD}'>{type(exc).__name__}: {exc}</span>"
@@ -552,11 +571,9 @@ class Inspector(QWidget):
     def _refresh_samples(self) -> None:
         if not self.isVisible():
             return
-        for label, slot, _fmt in list(self._samples):
+        for label, slot, current in list(self._samples):
             try:
-                holder = label.parentWidget()
-                edit = holder.findChild(controls.TextField) if holder else None
-                self._sample(label, slot, edit.text() if edit else "")
+                self._sample(label, slot, current())
             except RuntimeError:  # deleted with a rebuilt form
                 self._samples = []
                 return
@@ -606,6 +623,15 @@ class Inspector(QWidget):
         row.addWidget(undo)
         undo.setVisible(explicit and not required)
         form.addRow(name, holder)
+
+
+def _format(text: str, fields: dict[str, Any] | None) -> str | None:
+    if fields is None:
+        return None
+    try:
+        return text.format(**fields)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _escape(text: str) -> str:

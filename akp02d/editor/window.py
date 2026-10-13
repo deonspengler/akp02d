@@ -495,8 +495,20 @@ class EditorWindow(QMainWindow):
 
     def _widget_edited(self, ref: Ref, key: str, value: Any) -> None:
         widget_id = self._id_of(ref)
+        changes: dict[str, Any] = {key: value}
+        if key == "source":
+            # A format written for the old source -- fields the new one
+            # lacks, or fixed text that ignores it -- would show an error
+            # or hide the reading, so it goes, and the new source's own
+            # default applies. In the same undo step.
+            old = self.document.entry(ref).get("format")
+            new_cls = sources.lookup(value) if isinstance(value, str) else None
+            if isinstance(old, str) and new_cls is not None:
+                used = sources.format_fields(old)
+                if not used or not used <= set(new_cls.fields):
+                    changes["format"] = None
         self.apply(f"Change {widget_id} {key}",
-                   lambda doc: doc.set(ref, key, value), merge=f"{ref}.{key}")
+                   lambda doc: doc.update(ref, changes), merge=f"{ref}.{key}")
 
     def _geometry_edited(self, ref: Ref, rect: Rect) -> None:
         self.apply(f"Move {self._id_of(ref)}",

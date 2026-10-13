@@ -164,6 +164,10 @@ which is why static text needs no plugin of its own.
 | `ip` | text | `value` (IPv4 of the default route, or of `interface`) |
 
 Gauges, bars and graphs draw the numeric kinds; labels show anything.
+A label with a source and no `format` uses that source's usual one --
+`{short}` for hostname, `{celsius:.0f}°C` for temperature -- and the
+editor offers each source's ready-made formats in a dropdown, previewed
+with the current reading.
 
 ### Label effects
 

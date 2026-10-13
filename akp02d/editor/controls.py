@@ -464,11 +464,16 @@ class SuggestField(QComboBox):
 
     changed = Signal(object)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, mono: bool = False) -> None:
         super().__init__(parent)
         _narrow(self)
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        if mono:
+            font = self.font()
+            font.setFamily("monospace")
+            font.setStyleHint(QFont.StyleHint.Monospace)
+            self.setFont(font)
         self._value: str | None = None
         self.lineEdit().editingFinished.connect(self._commit)
         self.activated.connect(self._picked)
