@@ -173,6 +173,14 @@ def test_gradient_sets_color_aside(app, tmp_path: Path) -> None:
         assert names.index("gradient") == names.index("color") + 1
         assert not any("olour-safe" in t for t in labels())
 
+        # Only the choices are listed; the default shows as selected.
+        direction = window.inspector.findChild(QtWidgets.QComboBox, "opt.gradient_direction")
+        items = [direction.itemText(i) for i in range(direction.count())]
+        assert items == ["vertical", "horizontal"]
+        assert direction.currentText() == "vertical"
+        fit = window.inspector.findChild(QtWidgets.QComboBox, "opt.fit")
+        assert fit.currentText() == "clip" and fit.count() == 3
+
         window._widget_edited(ref, "gradient", None)
         pump(app, 0.2)
         assert colour_field().isEnabled()

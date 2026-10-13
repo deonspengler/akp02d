@@ -356,7 +356,14 @@ def _narrow(combo: QComboBox) -> None:
 
 
 class ChoiceField(QComboBox):
-    """One of a fixed set, or the default."""
+    """One of a fixed set.
+
+    Only the choices are listed. While the theme leaves the key out, the
+    one in effect -- the default, or what `auto` works out -- is shown
+    selected; the row's faint name and hidden × already say it is not
+    set, and × is how to go back to it. A list entry for "the default"
+    would only repeat one of the choices.
+    """
 
     changed = Signal(object)
 
@@ -370,14 +377,17 @@ class ChoiceField(QComboBox):
     def set_value(self, value: Any, default_label: str) -> None:
         self.blockSignals(True)
         self.clear()
-        self.addItem(default_label if default_label.startswith("auto")
-                     else f"default: {default_label}", None)
+        self._value = value if isinstance(value, str) else None
+        in_effect = default_label.removeprefix("auto: ")
+        if self._value is None and in_effect not in self._choices:
+            # No default among the choices ("none", "required"): say so.
+            self.addItem(default_label, None)
         for choice in self._choices:
             self.addItem(choice, choice)
-        self._value = value if isinstance(value, str) else None
         if self._value is not None and self._value not in self._choices:
             self.addItem(f"{self._value} (invalid)", self._value)
-        self.setCurrentIndex(max(0, self.findData(self._value)) if self._value else 0)
+        shown = self.findData(self._value if self._value is not None else in_effect)
+        self.setCurrentIndex(max(0, shown))
         self.blockSignals(False)
 
     def _picked(self, index: int) -> None:
