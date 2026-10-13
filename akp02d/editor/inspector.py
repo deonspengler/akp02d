@@ -200,7 +200,8 @@ class Inspector(QWidget):
                       "Delete removes. Ctrl+wheel zooms.\n\n"
                       "Readings in the preview are simulated -- CPU, memory, disk and "
                       "network move, and spectrums play made-up music -- so every "
-                      "widget looks alive on any machine. The clock is real.\n\n"
+                      "widget looks alive on any machine. The clock is real, and so "
+                      "is a temperature sensor this machine has.\n\n"
                       "Hover over the panel to see the pixel position and colour in "
                       "the status bar.")
         hint.setWordWrap(True)

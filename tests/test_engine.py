@@ -171,3 +171,32 @@ def test_simulated_audio_shape() -> None:
     assert all(0 <= v <= 65535 for v in frame)
     # Stereo mirrors the lows into the middle, as cava does.
     assert frame[15] > frame[0] and frame[16] > frame[31]
+
+
+def test_editor_reads_the_chosen_temperature_sensor(tmp_path: Path, monkeypatch) -> None:
+    """A sensor this machine has is read for real in the preview, so
+    picking edge or junction shows edge or junction."""
+    from akp02d import sources
+    chip = tmp_path / "hwmon" / "hwmon0"
+    chip.mkdir(parents=True)
+    (chip / "name").write_text("amdgpu")
+    for number, (label, milli) in enumerate((("edge", 46000), ("junction", 58000),
+                                             ("mem", 62000)), start=1):
+        (chip / f"temp{number}_input").write_text(str(milli))
+        (chip / f"temp{number}_label").write_text(label)
+    monkeypatch.setattr(sources, "HWMON", tmp_path / "hwmon")
+    monkeypatch.setattr(sources, "THERMAL", tmp_path / "none")
+    for label, expected in (("edge", 46.0), ("junction", 58.0), ("mem", 62.0)):
+        text = STATIC + ('\n[[widget.label]]\nx = 8\ny = 120\nwidth = 200\nheight = 40\n'
+                         f'source = "temperature"\nsensor = "amdgpu"\nsensor_label = "{label}"\n')
+        engine, _ = engine_for(text, tmp_path)
+        widget = next(s for s in engine.slots if s.id == "label#3").widget
+        assert widget._source.read(0.0)[0] == expected
+        assert widget.text(0.0) == f"{expected:.0f}°C"
+        assert not [p for p in engine.problems() if p.widget == "label#3"]
+        engine.close()
+    # A sensor this machine lacks is simulated, with a warning.
+    text = STATIC + ('\n[[widget.label]]\nx = 8\ny = 120\nwidth = 200\nheight = 40\n'
+                     'source = "temperature"\nsensor = "k10temp"\n')
+    engine, _ = engine_for(text, tmp_path)
+    assert [p.level for p in engine.problems() if p.widget == "label#3"] == [WARNING]

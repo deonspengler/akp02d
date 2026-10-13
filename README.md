@@ -48,7 +48,9 @@ text placement are the pixels the daemon will send.
 * The preview's readings are simulated -- plausible moving CPU, memory,
   disk and network data, and made-up music for spectrums -- so graphs
   scroll and gauges move on any machine, `cava` or not. The clock is
-  real.
+  real, and so is a temperature sensor the editing machine has, so the
+  preview shows the sensor and reading you picked; only one it lacks is
+  simulated.
 * Settings that only fail on this machine -- a locale not generated
   here, an interface named for another computer -- are previewed
   without that setting and flagged, not treated as errors.

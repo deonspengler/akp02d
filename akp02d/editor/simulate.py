@@ -7,9 +7,12 @@ spectrum needs cava and music. So in the editor every known source is
 answered with plausible moving data, and every spectrum with made-up
 music: graphs scroll, gauges move, bars dance, on any machine.
 
-The clock stays real. Sources the editor does not know -- a third-party
-plugin's -- are read live; standing in for them would mean guessing at
-their fields.
+The clock stays real, and so does a temperature sensor that exists on
+this machine: there the point is picking the right sensor, and a
+made-up number would hide which one was picked. Only a sensor this
+machine lacks is simulated. Sources the editor does not know -- a
+third-party plugin's -- are read live; standing in for them would mean
+guessing at their fields.
 """
 
 from __future__ import annotations
@@ -101,10 +104,12 @@ class StandIn:
             up = 10 ** (2.8 + 2.6 * _wave(now + 40, 17, 6.7, 2.9) ** 3)
             return None, pair_fields(up, down)
         if name == "temperature":
-            # Idles warm and drifts: a heatsink smooths out what the CPU
-            # does second to second, so only slow waves here.
-            celsius = 42.0 + 28.0 * _wave(now, 53, 23, 11) ** 2 + 3.0 * _wave(now, 7.1)
             real = self.real
+            if getattr(real, "unavailable", None) is None:
+                return real.read(now)   # the sensor the theme picked
+            # Not on this machine: idles warm and drifts, as a heatsink
+            # smooths what the CPU does second to second.
+            celsius = 42.0 + 28.0 * _wave(now, 53, 23, 11) ** 2 + 3.0 * _wave(now, 7.1)
             return celsius, sources.temperature_fields(
                 celsius, getattr(real, "_chip", ""), getattr(real, "_label", ""))
         if name == "cpu":
