@@ -27,7 +27,9 @@ Options a style does not use are hidden in the editor.
 
 The arc takes one colour, picked from the gradient by the value it is
 showing, so a full gauge is red at a glance. `color_by = "position"`
-instead runs the ramp around the arc. `caps = "round"` rounds its ends.
+instead runs the ramp around the arc. `caps = "round"` rounds the arc's
+two ends; `tip = "round"` rounds the fill's moving end. Either goes with
+either.
 
 Everything that does not move -- face, rim, track, zones, ticks, numbers
 and, on the dial and meter, the label -- is drawn once, at load, into the
@@ -146,7 +148,9 @@ class GaugeWidget(Widget):
               doc="The unfilled part of the arc"),
         integer("thickness", 12, 1, 128, group="Arc", when=_is_arc),
         choice("caps", ("flat", "round"), "flat", group="Arc", when=_is_arc,
-               doc="The arc's ends: cut square, or rounded"),
+               doc="The arc's two ends: cut square, or rounded"),
+        choice("tip", ("flat", "round"), "flat", group="Arc", when=_is_arc,
+               doc="The fill's moving end, at the value: cut square, or rounded"),
         boolean("needle", False, group="Arc", when=_is_arc,
                 doc="A needle pointing at the value, coloured like the arc there"),
         # -- the scale --
@@ -213,7 +217,7 @@ class GaugeWidget(Widget):
                 doc="Size of the value text"),
     )
 
-    __slots__ = ("_by_level", "_centre", "_colours", "_ring", "_draw", "_fill", "_font", "_format",
+    __slots__ = ("_by_level", "_centre", "_colours", "_ring", "_round_tip", "_draw", "_fill", "_font", "_format",
                  "_glide", "_hub", "_hub_fill", "_label", "_label_fill", "_label_font",
                  "_label_xy", "_last", "_last_time", "_lut", "_needle", "_needle_lut",
                  "_next_read", "_radius", "_range", "_read_period", "_shadow", "_shown",
@@ -259,6 +263,7 @@ class GaugeWidget(Widget):
             self._ring = _ring((width, height), (width / 2 - pad, height / 2 - pad),
                                self._thickness, self._start, self._sweep, o.caps == "round")
             self._colours = None if self._by_level else self._ring.coloured(self._lut)
+            self._round_tip = o.tip == "round"
             self._centre = (width / 2 - 0.5, height / 2 - 0.5)
             # The inner edge of the arc's stroke: ticks and needle sit inside it.
             self._radius = min(width, height) / 2 - pad - self._thickness
@@ -476,8 +481,11 @@ class GaugeWidget(Widget):
         # and the tip's when the ramp runs round the arc.
         colour = gradient.colour_at(self._lut, fraction)
         self.surface.paste(colour if self._colours is None else self._colours, (0, 0), shown)
-        if ring.round_caps and fraction < 1:
-            _fill_circle(self.surface, ring.point(fraction), ring.thickness / 2, colour)
+        if self._round_tip and fraction < 1:
+            # Trimmed to the arc: by flat ends, a tip near either one is
+            # cut square with them rather than poking out past them.
+            _fill_circle(self.surface, ring.point(fraction), ring.thickness / 2, colour,
+                         within=ring.mask)
 
     def _draw_needle(self, fraction: float) -> None:
         length, width = self._needle
@@ -660,7 +668,8 @@ def _fill_polygon(surface: Image.Image, points, colour, alpha: float = 1.0,
     surface.paste(colour, (left, top, right, bottom), mask)
 
 
-def _fill_circle(surface: Image.Image, centre, radius: float, colour) -> None:
+def _fill_circle(surface: Image.Image, centre, radius: float, colour,
+                 within: Image.Image | None = None) -> None:
     cx, cy = centre
     left = max(0, math.floor(cx - radius) - 1)
     top = max(0, math.floor(cy - radius) - 1)
@@ -672,4 +681,7 @@ def _fill_circle(surface: Image.Image, centre, radius: float, colour) -> None:
     x, y = (cx - left) * SS, (cy - top) * SS
     ImageDraw.Draw(mask).ellipse((x - radius * SS, y - radius * SS,
                                   x + radius * SS, y + radius * SS), fill=255)
-    surface.paste(colour, (left, top, right, bottom), mask.reduce(SS))
+    mask = mask.reduce(SS)
+    if within is not None:
+        mask = ImageChops.multiply(mask, within.crop((left, top, right, bottom)))
+    surface.paste(colour, (left, top, right, bottom), mask)

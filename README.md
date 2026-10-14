@@ -266,9 +266,10 @@ zones = [[0.8, 1.0, "#e63232"]]  # [from, to, colour], in the reading's units
 glide = 0.4                    # seconds to swing to a new reading; 0 jumps
 ```
 
-* **arc** -- the filling arc, smooth-edged. `caps = "round"` rounds its
-  ends (the fill's tip too), `needle = true` adds a needle coloured like
-  the arc where it points, and `ticks = 10` a scale inside it.
+* **arc** -- the filling arc, smooth-edged. `caps = "round"` rounds the
+  arc's two ends and `tip = "round"` the fill's moving end, separately;
+  `needle = true` adds a needle coloured like the arc where it points,
+  and `ticks = 10` a scale inside it.
 * **dial** -- a round face with ticks, numbers and a tapered needle on a
   hub, like a car's.
 * **meter** -- a cream meter face; the needle pivots from below

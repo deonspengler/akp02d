@@ -206,8 +206,27 @@ def test_round_caps_reach_past_the_ends() -> None:
     flat, rounded = arc({"thickness": 16}, 0.5), arc({"thickness": 16, "caps": "round"}, 0.5)
     assert beyond(flat, 0.0, -step) == BG and beyond(rounded, 0.0, -step) == RED
     assert beyond(flat, 1.0, step) == BG and beyond(rounded, 1.0, step) == TRACK
-    # The fill's own tip is rounded too: just past the value, still filled.
-    assert on_stroke(rounded, 0.5 + 0.01) == RED
+    # Caps are the arc's ends only: the fill's tip stays square.
+    assert on_stroke(rounded, 0.5 + 0.02) == TRACK
+
+
+@pytest.mark.parametrize("caps", ["flat", "round"])
+def test_round_tip_is_separate_from_the_caps(caps) -> None:
+    square = arc({"thickness": 16, "caps": caps}, 0.5)
+    rounded = arc({"thickness": 16, "caps": caps, "tip": "round"}, 0.5)
+    assert on_stroke(square, 0.5 + 0.02) == TRACK
+    assert on_stroke(rounded, 0.5 + 0.02) == RED      # the tip's round end
+
+
+def test_round_tip_stays_inside_flat_ends() -> None:
+    """Near the start, a round tip is trimmed by a flat end, not drawn
+    out past it over the background."""
+    w = arc({"thickness": 16, "tip": "round"}, 0.01)
+    cx, cy = w._ring._centre
+    a, b = w._ring._mid
+    angle = math.radians(w._start) - 4 / 60
+    outside = w.surface.getpixel((round(cx + a * math.cos(angle)), round(cy + b * math.sin(angle))))
+    assert outside == BG
 
 
 def test_position_colours_run_round_the_arc() -> None:
