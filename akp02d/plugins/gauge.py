@@ -1,4 +1,4 @@
-"""gauge: a scalar as a swept arc, a needle dial, or a VU meter.
+"""gauge: a scalar as a swept arc, a needle dial, or an analog meter.
 
     [[widget.gauge]]
     x = 1280
@@ -17,7 +17,8 @@
   arc's colour where it points.
 * dial -- a round face with ticks and numbers and a tapered needle on a
   hub, like a car's.
-* vu -- a cream meter face whose needle pivots from below the scale.
+* meter -- a cream meter face whose needle pivots from below the
+  scale, like an old ammeter, voltmeter or VU meter.
 
 All three share the reading (source, min, max, format), the `sweep`
 of the scale, `zones` (ranges drawn in a colour: a red line), and
@@ -29,7 +30,7 @@ showing, so a full gauge is red at a glance. `color_by = "position"`
 instead runs the ramp around the arc.
 
 Everything that does not move -- face, rim, track, zones, ticks, numbers
-and, on the dial and VU, the label -- is drawn once, at load, into the
+and, on the dial and meter, the label -- is drawn once, at load, into the
 widget's backdrop, supersampled so its curves are smooth. A redraw is a
 paste of that, the arc's fill, the needle (supersampled over just its
 own bounding box) and the value text. The arc's track and fill are
@@ -59,7 +60,7 @@ from .base import PluginError, Widget, WidgetSpec, register
 if TYPE_CHECKING:
     from ..theme import Theme
 
-STYLES = ("arc", "dial", "vu")
+STYLES = ("arc", "dial", "meter")
 # Supersampling for what is drawn smooth: the face once, the needle per frame.
 SS = 4
 # How often a gliding needle is redrawn while it moves.
@@ -77,9 +78,9 @@ def _style(values) -> str:
     return style if style in STYLES else "arc"
 
 
-def _per(arc, dial, vu, describe: str) -> Auto:
+def _per(arc, dial, meter, describe: str) -> Auto:
     """A default that depends on the style."""
-    table = {"arc": arc, "dial": dial, "vu": vu}
+    table = {"arc": arc, "dial": dial, "meter": meter}
 
     def compute(values, spec):
         value = table[_style(values)]
@@ -111,10 +112,10 @@ def _shows_text(values) -> bool:
 
 @register("gauge")
 class GaugeWidget(Widget):
-    """A scalar as an arc, a needle dial, or a VU meter."""
+    """A scalar as an arc, a needle dial, or an analog meter."""
 
     default_fps = 1.0
-    summary = "A reading as a swept arc, a needle dial, or a VU meter"
+    summary = "A reading as a swept arc, a needle dial, or an analog meter"
     schema = Schema(
         source(accepts=(sources.SCALAR,), required=True),
         number("min", Auto(lambda v, spec: _range(v)[0], "the source's usual low"),
@@ -125,8 +126,8 @@ class GaugeWidget(Widget):
                     doc="Value text, filled from the source's fields"),
         choice("style", STYLES, "arc", group="Gauge",
                doc="arc: a filling arc; dial: a round face with ticks and a "
-                   "needle; vu: a meter face with a needle pivoting below"),
-        number("sweep", _per(270.0, 270.0, 90.0, "270; 90 for vu"), 30.0, 360.0,
+                   "needle; meter: a cream meter face with a needle pivoting below"),
+        number("sweep", _per(270.0, 270.0, 90.0, "270; 90 for meter"), 30.0, 360.0,
                group="Gauge", doc="Degrees the scale spans, centred at the top"),
         zones(group="Gauge",
               doc="Ranges of the reading drawn in a colour, as [from, to, "
@@ -145,11 +146,11 @@ class GaugeWidget(Widget):
         boolean("needle", False, group="Arc", when=_is_arc,
                 doc="A needle pointing at the value, coloured like the arc there"),
         # -- the scale --
-        color("face", _per(None, "#12161e", "#ece0be", "dark for dial; cream for vu"),
+        color("face", _per(None, "#12161e", "#ece0be", "dark for dial; cream for meter"),
               group="Scale", when=lambda v: not _is_arc(v)),
         color("rim", _per(None, "#3c4452", "#5a4628", "a shade of the face"),
               group="Scale", when=lambda v: not _is_arc(v)),
-        integer("ticks", _per(0, 5, 5, "0 on an arc; 5 on dial and vu"), 0, 50,
+        integer("ticks", _per(0, 5, 5, "0 on an arc; 5 on dial and meter"), 0, 50,
                 group="Scale", doc="Major divisions of the scale; 0 for none"),
         integer("minor_ticks", 4, 0, 20, group="Scale", when=_has_ticks,
                 doc="Small marks between two major ones"),
@@ -167,7 +168,7 @@ class GaugeWidget(Widget):
         # -- the needle --
         colors("needle_color", _per(lambda v, s: _hexes(v.get("gradient")), ("#ff483c",),
                                     ("#1a1714",),
-                                    "the arc's gradient; red on a dial; black on vu"),
+                                    "the arc's gradient; red on a dial; black on meter"),
                group="Needle", when=_has_needle,
                doc="One colour, or several: the needle takes the colour for "
                    "the value it points at"),
@@ -183,12 +184,12 @@ class GaugeWidget(Widget):
         integer("hub",
                 _per(lambda v, s: max(3, round(_short(s) * 0.035)),
                      lambda v, s: max(4, round(_short(s) * 0.07)),
-                     0, "scaled to the gauge; none on vu"), 0, 256,
+                     0, "scaled to the gauge; none on meter"), 0, 256,
                 group="Needle", when=_has_needle,
                 doc="Radius of the cap over the pivot; 0 for none"),
         color("hub_color", _per(None, "#282c34", "#1a1714", "the needle's colour on an arc"),
               group="Needle", when=lambda v: _has_needle(v) and bool(v.get("hub"))),
-        boolean("shadow", _per(False, True, True, "on for dial and vu"),
+        boolean("shadow", _per(False, True, True, "on for dial and meter"),
                 group="Needle", when=_has_needle, doc="A soft shadow under the needle"),
         # -- text --
         string("label", None, group="Text", doc="Caption, e.g. CPU"),
@@ -269,7 +270,7 @@ class GaugeWidget(Widget):
             cx, cy = self._centre = (width / 2, height / 2)
             self._label_xy = (cx, cy + self._radius * 0.40)
             self._value_xy = (cx, cy + self._radius * 0.62)
-        else:  # vu
+        else:  # meter
             half = math.radians(min(self._sweep, 170.0) / 2)
             top = height * 0.24
             radius = (width * 0.40) / max(math.sin(half), 0.2)
@@ -335,7 +336,7 @@ class GaugeWidget(Widget):
                             fill=(*colour, 255), width=round(band))
             outer, major, minor, numbers_at = r * 0.93, r * 0.11, r * 0.055, r * 0.70
             drew = True
-        elif self._style == "vu":
+        elif self._style == "meter":
             corner = min(width, height) * 0.08 * SS
             rim = max(2.0, min(width, height) * 0.016 * SS)
             big.rounded_rectangle((rim / 2, rim / 2, width * SS - rim / 2, height * SS - rim / 2),
@@ -368,7 +369,7 @@ class GaugeWidget(Widget):
                 length = major if is_major else minor
                 if outer >= 0:
                     a, b = _point(cx, cy, outer, angle), _point(cx, cy, outer - length, angle)
-                else:   # vu: ticks stand outward from the scale line
+                else:   # meter: ticks stand outward from the scale line
                     a, b = _point(cx, cy, r, angle), _point(cx, cy, r + length, angle)
                 thick = max(SS, round(r * (0.014 if is_major else 0.007)))
                 big.line((a, b), fill=colour if is_major else (*o.scale_color, 170),

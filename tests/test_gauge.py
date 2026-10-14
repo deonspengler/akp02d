@@ -1,4 +1,4 @@
-"""Gauge styles: arc, dial, vu; needles, zones, glide."""
+"""Gauge styles: arc, dial, meter; needles, zones, glide."""
 
 from __future__ import annotations
 
@@ -81,8 +81,8 @@ def test_arc_needle_takes_the_arc_colour() -> None:
     assert along(w, 1.0, 0.5) == RED
 
 
-def test_vu_has_a_face_and_its_needle_crosses_it() -> None:
-    w = gauge({"style": "vu", "needle_color": "#ff0000", "shadow": False,
+def test_meter_has_a_face_and_its_needle_crosses_it() -> None:
+    w = gauge({"style": "meter", "needle_color": "#ff0000", "shadow": False,
                "face": "#ece0be"}, size=(380, 180), value=0.5)
     w.render(0.0)
     assert w.surface.getpixel((40, 40)) == (236, 224, 190)       # face
@@ -153,6 +153,6 @@ def test_style_hides_what_it_does_not_use() -> None:
                                 if o.applies({"style": style, **v})}
     assert "thickness" in shown("arc") and "face" not in shown("arc")
     assert "needle_color" not in shown("arc") and "needle_color" in shown("arc", needle=True)
-    assert "face" in shown("vu") and "gradient" not in shown("vu")
+    assert "face" in shown("meter") and "gradient" not in shown("meter")
     assert "minor_ticks" not in shown("arc", ticks=0)
     assert "minor_ticks" in shown("dial", ticks=5)

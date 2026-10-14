@@ -259,7 +259,7 @@ y = 16
 width = 352
 height = 352
 source = "cpu"
-style = "dial"                 # arc (the default) | dial | vu
+style = "dial"                 # arc (the default) | dial | meter
 label = "CPU %"
 format = "{percent:.0f}"
 zones = [[0.8, 1.0, "#e63232"]]  # [from, to, colour], in the reading's units
@@ -270,15 +270,16 @@ glide = 0.4                    # seconds to swing to a new reading; 0 jumps
   like the arc where it points, and `ticks = 10` a scale inside it.
 * **dial** -- a round face with ticks, numbers and a tapered needle on a
   hub, like a car's.
-* **vu** -- a cream meter face; the needle pivots from below the scale.
+* **meter** -- a cream meter face; the needle pivots from below
+  the scale, like an old ammeter or an audio VU meter.
   Suits a wide, short box.
 
 Shared by all three: `sweep` (degrees the scale spans, centred at the
 top), `zones`, `ticks`, `minor_ticks`, `numbers`, and `glide`. The
 needle has `needle_color` (one colour, or several so it takes the colour
 for the value), `needle_length`, `needle_width`, `hub`, `hub_color` and
-`shadow`; dial and vu add `face`, `rim` and `scale_color`. Each style's
-defaults suit it, so `style = "vu"` alone gives a finished meter. A
+`shadow`; dial and meter add `face`, `rim` and `scale_color`. Each style's
+defaults suit it, so `style = "meter"` alone gives a finished meter. A
 0..1 reading (cpu, memory, disk) is numbered 0-100 on the scale, while
 its `zones`, like `min` and `max`, stay in the reading's own units.
 
