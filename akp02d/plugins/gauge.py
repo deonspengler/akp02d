@@ -164,7 +164,7 @@ class GaugeWidget(Widget):
                 doc="Small marks between two major ones"),
         boolean("numbers", _per(False, True, True, "off on an arc; on otherwise"),
                 group="Scale", when=_has_ticks,
-                doc="A number at each major mark; a 0..1 reading is numbered 0-100"),
+                doc="A number at each major mark; a reading in fractions (0..1) is numbered as a percentage"),
         color("scale_color", _per("#5a6478", "#e6e8ec", "#2a221c", "suits the face"),
               group="Scale", when=lambda v: _has_ticks(v) or not _is_arc(v)),
         integer("number_size",
@@ -388,7 +388,7 @@ class GaugeWidget(Widget):
                     at = numbers_at if numbers_at is not None else \
                         r + major + o.number_size * SS * 0.9
                     x, y = _point(cx, cy, at, angle)
-                    big.text((x, y), _number(value, self._range), font=number_font,
+                    big.text((x, y), _number(value, getattr(self._source, "range", None) == (0.0, 1.0)), font=number_font,
                              fill=self._zone_colour(o.zones, value, colour), anchor="mm")
         if self._style != "arc" and self._label:
             drew = True
@@ -637,9 +637,11 @@ def _mix(a, b, t: float):
     return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
 
 
-def _number(value: float, span: tuple[float, float]) -> str:
-    """A scale number: a 0..1 reading is numbered as a percentage."""
-    if span == (0.0, 1.0):
+def _number(value: float, fractional: bool) -> str:
+    """A scale number. A reading in fractions (cpu, memory, volume: the
+    source's own range is 0..1) is numbered as a percentage -- whatever
+    min and max the gauge sets, so a volume to 1.5 reads 0..150."""
+    if fractional:
         value *= 100
     if abs(value - round(value)) < 1e-6:
         return str(int(round(value)))

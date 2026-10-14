@@ -25,7 +25,7 @@ from typing import Any
 from .. import sources
 from ..plugins import cava
 
-KNOWN = ("time", "cpu", "memory", "disk", "network", "temperature", "media")
+KNOWN = ("time", "cpu", "memory", "disk", "network", "temperature", "media", "volume")
 
 # A made-up playlist, so a now-playing block can be designed in silence.
 # One long title, to show what `fit` does with it.
@@ -155,8 +155,17 @@ class StandIn:
                 at -= length
             track = media.Track(status="Playing", player="simulated", artist=artist,
                                 title=title, album=album, length=float(length),
-                                position=at, at=now, art=_cover(index))
+                                position=at, at=now, art=_cover(index), volume=0.7)
             fields = sources.media_fields(track, now, getattr(self.real, "_idle", ""))
+            return fields["value"], fields
+        if name == "volume":
+            # Set in 5% steps, as volume keys do, wandering slowly, and
+            # muted for a few seconds every half minute.
+            level = round((0.35 + 0.45 * _wave(now, 41, 17)) * 20) / 20
+            muted = now % 30 < 4
+            device = "Headphones" if getattr(self.real, "_input", False) is False \
+                else "Microphone"
+            fields = sources.volume_fields(level, muted, device)
             return fields["value"], fields
         if name == "network":
             # Mostly idle with bursts, spanning the orders of magnitude a

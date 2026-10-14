@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .schema import Schema, string
+from .schema import Schema, boolean, string
 from .table import SettingsError, Table
 
 # What a source produces, and therefore which shapes can draw it.
@@ -457,7 +457,7 @@ class MediaSource(Source):
                doc="The title shown when nothing is playing"),
     )
     fields = ("title", "artist", "album", "status", "player", "position", "length",
-              "remaining", "position_s", "length_s", "value", "percent", "art")
+              "remaining", "position_s", "length_s", "value", "percent", "art", "volume")
     pictures = True   # the cover art, for an image widget
     formats = ("{title}", "{artist} · {title}", "{artist}", "{album}",
                "{position} / {length}", "{remaining}", "{status}")
@@ -496,6 +496,79 @@ class MediaSource(Source):
             self._stream = None
 
 
+class VolumeSource(Source):
+    """The system's volume (or a microphone's), via pactl.
+
+    Every widget on the same device shares one `pactl subscribe` (see
+    volume.py), and nothing polls: the panel follows a volume key the
+    moment it is pressed, and costs nothing while nothing changes.
+
+    `value` is what you hear -- 0 while muted -- so a bar empties on
+    mute; `percent` is the level set, muted or not, and `text` says
+    "muted" or the percentage.
+    """
+
+    kind = SCALAR
+    schema = Schema(
+        string("device", None, group="Data",
+               doc="Which output to follow; empty follows the default, so it "
+                   "moves with you to headphones",
+               suggest=lambda values: _volume().devices(bool(values.get("input")))),
+        boolean("input", False, group="Data",
+                doc="A microphone's level instead of the speakers'"),
+    )
+    fields = ("value", "percent", "muted", "text", "device")
+    formats = ("{text}", "{percent:.0f}%", "{device}")
+    summary = "The system's volume, or a microphone's (needs pactl)"
+
+    def __init__(self, options: Table, widget: str) -> None:
+        o = self.schema.read(options)
+        self._device = o.device
+        self._input = o.input
+        self._stream = None
+        self.unavailable: str | None = None
+        if not _volume().installed():
+            message = (f"widget {widget!r}: pactl is not installed "
+                       f"(pacman -S libpulse)")
+            if wrap is None:
+                raise SourceError(message)
+            self.unavailable = message
+
+    def _may_start(self) -> bool:
+        if self.unavailable or wrap is not None:
+            return False   # a tool is standing in: no child process
+        from .plugins.base import dry_run
+        return not dry_run()
+
+    def read(self, now: float) -> tuple[float, dict[str, Any]]:
+        volume = _volume()
+        if self._stream is None and self._may_start():
+            self._stream = volume.acquire(self._device, self._input)
+        level = self._stream.read(now) if self._stream is not None else volume.Level()
+        fields = volume_fields(level.volume, level.muted, level.device)
+        return fields["value"], fields
+
+    def close(self) -> None:
+        if self._stream is not None:
+            _volume().release(self._stream)
+            self._stream = None
+
+
+def _volume():
+    from . import volume
+    return volume
+
+
+def volume_fields(level: float, muted: bool, device: str) -> dict[str, Any]:
+    return {
+        "value": 0.0 if muted else level,
+        "percent": level * 100,
+        "muted": muted,
+        "text": "muted" if muted else f"{level * 100:.0f}%",
+        "device": device,
+    }
+
+
 def _media():
     from . import media
     return media
@@ -528,6 +601,9 @@ def media_fields(track, now: float, idle: str) -> dict[str, Any]:
         "value": 0.0 if nothing else progress,
         "percent": 0.0 if nothing else progress * 100,
         "art": "" if nothing else track.art,
+        # The player's own volume (Spotify's slider), as a percentage; 0
+        # for a player that has none.
+        "volume": (track.volume or 0.0) * 100,
     }
 
 
@@ -734,6 +810,7 @@ _REGISTRY: dict[str, type[Source]] = {
     "kernel": KernelSource,
     "ip": IpSource,
     "media": MediaSource,
+    "volume": VolumeSource,
 }
 
 

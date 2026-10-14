@@ -142,9 +142,10 @@ def test_no_glide_jumps() -> None:
 
 
 def test_scale_numbers() -> None:
-    assert _number(0.8, (0.0, 1.0)) == "80"           # a fraction numbered as percent
-    assert _number(60.0, (20.0, 100.0)) == "60"
-    assert _number(2.5, (0.0, 5.0)) == "2.5"
+    assert _number(0.8, True) == "80"                 # a fraction numbered as percent
+    assert _number(1.5, True) == "150"                # past 1.0 too: a boosted volume
+    assert _number(60.0, False) == "60"
+    assert _number(2.5, False) == "2.5"
 
 
 def test_style_hides_what_it_does_not_use() -> None:

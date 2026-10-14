@@ -167,7 +167,8 @@ which is why static text needs no plugin of its own.
 | `uptime` | text | `value` (`3d 4h 12m`), `days`, `hours`, `minutes`, `total_hours` |
 | `kernel` | text | `value` (release), `version`, `machine` |
 | `ip` | text | `value` (IPv4 of the default route, or of `interface`) |
-| `media` | 0..1 (track progress) | `title`, `artist`, `album`, `status`, `player`, `position`, `length`, `remaining`, `position_s`, `length_s`, `percent`, `art` (`player`, `idle`) |
+| `media` | 0..1 (track progress) | `title`, `artist`, `album`, `status`, `player`, `position`, `length`, `remaining`, `position_s`, `length_s`, `percent`, `art`, `volume` (`player`, `idle`) |
+| `volume` | 0..1 (what you hear) | `text` (`65%` or `muted`), `percent`, `muted`, `device` (`device`, `input`) |
 
 Gauges, bars and graphs draw the numeric kinds; labels show anything.
 A label with a source and no `format` uses that source's usual one --
@@ -208,6 +209,31 @@ plays, so a layout can be designed in silence.
 A label's `fit` says what to do with text wider than its box: `clip` it,
 cut it short with an `ellipsis`, or `shrink` the font until it fits
 (down to 8 px, then clipped).
+
+### Volume
+
+```toml
+[[widget.gauge]]
+source = "volume"        # the default output; follows you to headphones
+style = "meter"
+format = "{text}"        # "65%", or "muted"
+glide = 0.3
+```
+
+`volume` reads the sound server through `pactl` (in the `libpulse`
+package), which works with PipeWire as well as PulseAudio. Like the
+media source, nothing polls: every widget on the same device shares one
+`pactl subscribe`, so the panel follows a volume key the moment it is
+pressed and costs nothing while nothing changes; if the sound server
+restarts, it reconnects. `device` picks an output other than the
+default (the editor lists them), and `input = true` reads a microphone
+instead -- a "mic muted" light is a label on `{text}`.
+
+`value` is what you hear, so a bar empties on mute, while `percent` is
+the level set either way. PipeWire allows boosting past 100%: the usual
+range stays 0-100%, so a bar is simply full beyond it, unless the
+widget sets `max = 1.5`. A player's own volume (Spotify's slider) is a
+different thing: that is the media source's `{volume}`.
 
 ### Label effects
 
@@ -282,8 +308,9 @@ needle has `needle_color` (one colour, or several so it takes the colour
 for the value), `needle_length`, `needle_width`, `hub`, `hub_color` and
 `shadow`; dial and meter add `face`, `rim` and `scale_color`. Each style's
 defaults suit it, so `style = "meter"` alone gives a finished meter. A
-0..1 reading (cpu, memory, disk) is numbered 0-100 on the scale, while
-its `zones`, like `min` and `max`, stay in the reading's own units.
+reading in fractions (cpu, memory, disk, volume) is numbered as a
+percentage on the scale -- a volume gauge to `max = 1.5` reads 0-150 --
+while its `zones`, like `min` and `max`, stay in the reading's own units.
 
 The face, ticks, numbers and zones are drawn once, at load, and so is
 the arc's whole fill; a redraw shows the fill up to the value, then the

@@ -33,7 +33,8 @@ log = logging.getLogger(__name__)
 # separator, which no title contains -- a tab or a dash might.
 SEP = "\x1f"
 FORMAT = SEP.join(("{{status}}", "{{playerName}}", "{{position}}", "{{mpris:length}}",
-                   "{{artist}}", "{{title}}", "{{album}}", "{{mpris:artUrl}}"))
+                   "{{artist}}", "{{title}}", "{{album}}", "{{mpris:artUrl}}",
+                   "{{volume}}"))
 RESYNC_SEC = 5.0
 
 
@@ -69,6 +70,7 @@ class Track:
     # The cover: file://, http(s)://, or a data: URL with the picture
     # inline (some players send it base64-encoded); "" for none.
     art: str = ""
+    volume: float | None = None  # the player's own, 0..1; None if it has none
     length: float = 0.0          # seconds
     position: float = 0.0        # seconds, at `at`
     at: float = 0.0              # monotonic time position was true
@@ -87,8 +89,13 @@ def parse(line: str, now: float) -> Track:
         return Track(at=now)
     status, player, position, length, artist, title, album = parts[:7]
     art = parts[7].strip() if len(parts) > 7 else ""
+    try:
+        volume: float | None = float(parts[8]) if len(parts) > 8 and parts[8].strip() else None
+    except ValueError:
+        volume = None
     return Track(
         status=status, player=player, artist=artist, title=title, album=album, art=art,
+        volume=volume,
         length=_seconds(length), position=_seconds(position), at=now,
     )
 
