@@ -281,6 +281,92 @@ def _stops(value: Any) -> list[str]:
     return []
 
 
+class AngleField(QWidget):
+    """A gradient's angle: the usual four as arrows, any other typed.
+
+    Arrows point the way the colours run, first stop to last: down (180),
+    right (90), down-right (135) and down-left (225). The one matching
+    the angle in effect is shown pressed.
+    """
+
+    changed = Signal(object)
+    PRESETS = (("↓", 180.0, "Top to bottom"), ("→", 90.0, "Left to right"),
+               ("↘", 135.0, "Top left to bottom right"),
+               ("↙", 225.0, "Top right to bottom left"))
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.edit = QLineEdit(self)
+        self.edit.setFixedWidth(56)
+        self.edit.editingFinished.connect(self._typed)
+        layout.addWidget(self.edit)
+        degrees = QLabel("°", self)
+        layout.addWidget(degrees)
+        self.buttons: list[QToolButton] = []
+        for arrow, angle, tip in self.PRESETS:
+            button = QToolButton(self)
+            button.setText(arrow)
+            button.setToolTip(f"{tip} ({angle:g}°)")
+            button.setCheckable(True)
+            button.setFixedSize(QSize(26, 24))
+            button.setStyleSheet("padding: 0; font-size: 14px;")
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.clicked.connect(lambda _c=False, a=angle: self._pick(a))
+            layout.addWidget(button)
+            self.buttons.append(button)
+        layout.addStretch(1)
+        self.setFocusProxy(self.edit)
+        self._value: float | None = None
+        self._default = 180.0
+
+    def set_value(self, value: Any, default: Any = 180.0) -> None:
+        ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+        self._value = float(value) if ok else None
+        self._default = float(default) if isinstance(default, (int, float)) else 180.0
+        self.edit.setText(_degrees(self._value) if self._value is not None else "")
+        self.edit.setPlaceholderText(_degrees(self._default))
+        self._mark()
+
+    def _mark(self) -> None:
+        shown = self._value if self._value is not None else self._default
+        for button, (_, angle, _) in zip(self.buttons, self.PRESETS):
+            button.setChecked(abs(shown - angle) < 1e-6)
+
+    def _pick(self, angle: float) -> None:
+        self._commit(angle)
+
+    def _typed(self) -> None:
+        text = self.edit.text().strip().rstrip("°")
+        if not text:
+            if self._value is not None:
+                self._value = None
+                self._mark()
+                self.changed.emit(None)
+            return
+        try:
+            angle = float(text) % 360.0
+        except ValueError:
+            self.edit.setText(_degrees(self._value) if self._value is not None else "")
+            return
+        self._commit(angle)
+
+    def _commit(self, angle: float) -> None:
+        self.edit.setText(_degrees(angle))
+        if angle != self._value:
+            self._value = angle
+            self._mark()
+            self.changed.emit(int(angle) if angle.is_integer() else angle)
+        else:
+            self._mark()
+
+
+def _degrees(angle: float) -> str:
+    return f"{angle:g}"
+
+
 class ZonesField(QWidget):
     """Ranges of the reading, each with a colour: from, to, colour, ×.
 

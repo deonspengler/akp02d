@@ -22,16 +22,9 @@ from dataclasses import dataclass, field
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from . import gradient
-from .schema import Option, choice, color, colors, integer, number
+from .schema import Option, angle, choice, color, colors, integer, number
 
 RGB = tuple[int, int, int]
-
-
-def _is_gradient(values) -> bool:
-    # Read values are tuples of stops; a tool's raw ones may be a plain
-    # string -- one colour, however many characters it has.
-    stops = values.get("color")
-    return isinstance(stops, (list, tuple)) and len(stops) > 1
 
 
 def fill_options(fill: str = "#ffffff", group: str = "Text") -> list[Option]:
@@ -43,10 +36,26 @@ def fill_options(fill: str = "#ffffff", group: str = "Text") -> list[Option]:
     return [
         colors("color", (fill,), group=group,
                doc="One colour, or a list of them for a gradient across the text"),
-        choice("gradient_direction", ("vertical", "horizontal"), "vertical",
-               group=group, when=_is_gradient,
-               doc="vertical runs top to bottom over the letters' height; "
-                   "horizontal runs left to right across the text"),
+        *gradient_options("color", group=group, subject="the text"),
+    ]
+
+
+def gradient_options(key: str, group: str, subject: str = "it",
+                     default_angle: float = 180.0) -> list[Option]:
+    """`<key>_shape` and `<key>_angle`, for a colours option painted
+    across an area: shown once the colour has a second stop."""
+    def has_gradient(values) -> bool:
+        stops = values.get(key)
+        return isinstance(stops, (list, tuple)) and len(stops) > 1
+
+    return [
+        choice(f"{key}_shape", gradient.SHAPES, "linear", group=group, when=has_gradient,
+               doc=f"linear runs across {subject} at an angle; radial from the "
+                   f"middle out"),
+        angle(f"{key}_angle", default_angle, group=group,
+              when=lambda v: has_gradient(v) and v.get(f"{key}_shape", "linear") != "radial",
+              doc="Which way the gradient runs, in degrees: 0 bottom to top, 90 "
+                  "left to right, 180 top to bottom, 270 right to left"),
     ]
 
 
@@ -82,7 +91,8 @@ def options(fill: str = "#ffffff", group: str = "Text",
 class TextStyle:
     fill: RGB
     stops: tuple[RGB, ...] | None = None
-    vertical: bool = True
+    angle: float = 180.0
+    shape: str = "linear"
     outline: RGB | None = None
     outline_width: int = 2
     shadow: RGB | None = None
@@ -98,7 +108,8 @@ class TextStyle:
         return cls(
             fill=stops[0],
             stops=stops if len(stops) > 1 else None,
-            vertical=values.gradient_direction == "vertical",
+            angle=values.color_angle,
+            shape=values.color_shape,
             outline=values.outline,
             outline_width=values.outline_width,
             shadow=values.shadow,
@@ -150,35 +161,44 @@ class TextStyle:
         if self.stops is None:
             surface.paste(self.fill, (0, 0), letters)
             return
-        if self.vertical:
-            start, end = band
-        else:
-            box = letters.getbbox() or (0, 0, size[0], size[1])
-            start, end = box[0], box[2]
-        surface.paste(self._ramp(size, start, end), (0, 0), letters)
+        # The gradient spans the text: across the ink, and up the cap band
+        # -- which stays put as the text changes, so a clock's colours do
+        # not shift with its digits.
+        ink = letters.getbbox() or (0, 0, size[0], size[1])
+        box = (ink[0], band[0], max(ink[2], ink[0] + 1), max(band[1], band[0] + 1))
+        surface.paste(self._painted(size, box), (0, 0), letters)
 
-    def _ramp(self, size: tuple[int, int], start: int, end: int) -> Image.Image:
-        """The gradient over [start, end] on the axis, flat beyond it."""
-        key = (size, self.vertical, start, end)
-        ramp = self._ramps.get(key)
-        if ramp is None:
-            if len(self._ramps) > 16:  # a horizontal ramp follows the text
+    def _painted(self, size: tuple[int, int], box: tuple[int, int, int, int]) -> Image.Image:
+        """The gradient over `box`, carried flat beyond it to `size`."""
+        key = (size, box)
+        painted = self._ramps.get(key)
+        if painted is None:
+            if len(self._ramps) > 16:  # follows the text's width
                 self._ramps.clear()
-            width, height = size
-            length = height if self.vertical else width
-            span = max(end - start, 1)
-            positions = [min(255, max(0, (i - start) * 255 // span)) for i in range(length)]
-            if self.vertical:
-                strip = Image.new("L", (1, length))
-            else:
-                strip = Image.new("L", (length, 1))
-            strip.putdata(positions)
-            stretched = strip.resize(size, Image.Resampling.NEAREST)
             assert self.stops is not None
-            tables = gradient.lut(self.stops)
-            ramp = Image.merge("RGB", tuple(stretched.point(t) for t in tables))
-            self._ramps[key] = ramp
-        return ramp
+            inner = gradient.paint(self.stops, (box[2] - box[0], box[3] - box[1]),
+                                   self.angle, self.shape)
+            painted = _extend(inner, size, box)
+            self._ramps[key] = painted
+        return painted
+
+
+def _extend(inner: Image.Image, size: tuple[int, int], box) -> Image.Image:
+    """`inner` placed at `box`, its edges stretched out to fill `size`:
+    a descender below the cap band keeps the last colour, not black."""
+    width, height = size
+    left, top, right, bottom = box
+    out = Image.new("RGB", size)
+    # Stretch the edge rows and columns outward, corners included.
+    xs = ((0, left, 0, 1), (left, right, 0, inner.width), (right, width, inner.width - 1, inner.width))
+    ys = ((0, top, 0, 1), (top, bottom, 0, inner.height), (bottom, height, inner.height - 1, inner.height))
+    for x0, x1, sx0, sx1 in xs:
+        for y0, y1, sy0, sy1 in ys:
+            if x1 > x0 and y1 > y0:
+                piece = inner.crop((sx0, sy0, sx1, sy1)).resize((x1 - x0, y1 - y0),
+                                                                Image.Resampling.NEAREST)
+                out.paste(piece, (x0, y0))
+    return out
 
 
 def _mask(size, xy, text, font, anchor, stroke: int) -> Image.Image:

@@ -66,6 +66,7 @@ FONT = "font"          # a theme-relative file or a system family
 IMAGE = "image"        # an image file, relative to the theme's folder
 INTEGER = "integer"
 NUMBER = "number"
+ANGLE = "angle"        # degrees, 0 pointing up and clockwise; a number to tools
 BOOLEAN = "boolean"
 CHOICE = "choice"
 COLOR = "color"        # read as an (r, g, b) tuple
@@ -173,13 +174,13 @@ class Option:
         ):
             table.raw(key)  # mark it read; absent means "none"
             return None
-        if default is None and kind in (INTEGER, NUMBER, COLOR):
+        if default is None and kind in (INTEGER, NUMBER, ANGLE, COLOR):
             default = REQUIRED  # present, so it must be valid
         if kind in (STRING, FORMAT, FONT, IMAGE):
             return table.string(key, default)
         if kind == INTEGER:
             return table.integer(key, default, *_bounds(self, int))
-        if kind == NUMBER:
+        if kind in (NUMBER, ANGLE):
             return table.number(key, default, *_bounds(self, float))
         if kind == BOOLEAN:
             return table.boolean(key, default)
@@ -326,6 +327,12 @@ def integer(key: str, default: Any, low: int | None = None,
 def number(key: str, default: Any, low: float | None = None,
            high: float | None = None, **kw: Any) -> Option:
     return Option(key, NUMBER, default, low, high, **kw)
+
+
+def angle(key: str, default: Any = 180.0, **kw: Any) -> Option:
+    """A direction in degrees, as CSS writes gradient angles: 0 bottom to
+    top, 90 left to right, 180 top to bottom."""
+    return Option(key, ANGLE, default, 0.0, 360.0, **kw)
 
 
 def boolean(key: str, default: bool, **kw: Any) -> Option:

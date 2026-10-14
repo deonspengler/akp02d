@@ -21,7 +21,9 @@ from typing import TYPE_CHECKING
 from PIL import Image
 
 from ..layout import Rect
-from ..schema import Auto, Schema, color, number
+from .. import gradient
+from ..schema import Auto, Schema, colors, number
+from ..textfx import gradient_options
 from ..table import SettingsError, Table
 
 if TYPE_CHECKING:  # theme imports this module, so only for types
@@ -54,8 +56,10 @@ class WidgetSpec:
 # Keys every widget accepts, read by Widget itself. The geometry keys
 # (id, x, y, width, height, fps) are the theme's, not a schema's.
 BASE = Schema(
-    color("background", None, group="Background",
-          doc="A colour laid over the wallpaper under this widget"),
+    colors("background", None, group="Background",
+           doc="A colour laid over the wallpaper under this widget, or several "
+               "for a gradient"),
+    *gradient_options("background", group="Background", subject="the widget"),
     number("alpha", Auto(lambda v, spec: 1.0 if v.background else 0.0,
                          "1 with a background colour, else 0"),
            0.0, 1.0, group="Background",
@@ -101,7 +105,8 @@ class Widget:
         # colour that silently does nothing.
         base = BASE.read(spec.options, spec)
         if base.alpha:
-            flat = Image.new("RGB", self.backdrop.size, base.background or (0, 0, 0))
+            flat = gradient.paint(tuple(base.background or ((0, 0, 0),)), self.backdrop.size,
+                                  base.background_angle, base.background_shape)
             self.backdrop = Image.blend(self.backdrop, flat, base.alpha)
         # The widget's own back buffer, allocated once and drawn over in
         # place. Its size is the region's, so it is also exactly what

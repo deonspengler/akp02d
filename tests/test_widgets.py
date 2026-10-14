@@ -207,3 +207,31 @@ def test_sensor_choices(tmp_path, monkeypatch) -> None:
     option = sources.TemperatureSource.schema["sensor_label"]
     from akp02d.schema import Values
     assert [v for v, _ in option.suggestions(Values(sensor="nvme"))] == ["Composite"]
+
+
+def test_label_gradient_at_an_angle() -> None:
+    """90 degrees runs left to right across the text itself."""
+    image = label_pixels(format="MMMMMM", color=["#ff0000", "#0000ff"], color_angle=90)
+    ink = [(x, y) for y in range(80) for x in range(300) if image.getpixel((x, y)) != (10, 10, 10)]
+    left = min(x for x, _ in ink)
+    right = max(x for x, _ in ink)
+    first = [image.getpixel(p) for p in ink if p[0] <= left + 3]
+    last = [image.getpixel(p) for p in ink if p[0] >= right - 3]
+    assert all(r > b for r, _, b in first) and all(b > r for r, _, b in last)
+
+
+def test_widget_background_gradient() -> None:
+    widget = build("label", {"format": "", "background": ["#ff0000", "#0000ff"],
+                             "background_angle": 90})
+    width = widget.backdrop.width
+    assert widget.backdrop.getpixel((0, 5)) == (255, 0, 0)
+    assert widget.backdrop.getpixel((width - 1, 5)) == (0, 0, 255)
+
+
+def test_ramp_corners_follow_the_angle() -> None:
+    from akp02d.gradient import ramp
+    for angle, first, last in ((0, (0, 99), (0, 0)), (90, (0, 0), (199, 0)),
+                               (180, (0, 0), (0, 99)), (135, (0, 0), (199, 99)),
+                               (225, (199, 0), (0, 99))):
+        positions = ramp((200, 100), angle)
+        assert positions.getpixel(first) < 8 and positions.getpixel(last) > 247, angle

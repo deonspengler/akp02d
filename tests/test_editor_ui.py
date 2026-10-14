@@ -167,7 +167,7 @@ def test_color_is_one_colour_or_a_gradient(app, tmp_path: Path) -> None:
             return window.inspector.findChild(controls.GradientField, "opt.color")
 
         def direction():
-            return window.inspector.findChild(QtWidgets.QComboBox, "opt.gradient_direction")
+            return window.inspector.findChild(controls.AngleField, "opt.color_angle")
 
         def labels():
             return [w.text() for w in window.inspector.findChildren(QtWidgets.QLabel)]
@@ -183,8 +183,20 @@ def test_color_is_one_colour_or_a_gradient(app, tmp_path: Path) -> None:
         pump(app, 0.3)
         assert window.document.entry(ref)["color"] == ["#ff8800", "#ff8800"]
         assert field().is_gradient
-        items = [direction().itemText(i) for i in range(direction().count())]
-        assert items == ["vertical", "horizontal"] and direction().currentText() == "vertical"
+        # Shape and angle: linear, top to bottom, its arrow pressed.
+        shape = window.inspector.findChild(QtWidgets.QComboBox, "opt.color_shape")
+        assert [shape.itemText(i) for i in range(shape.count())] == ["linear", "radial"]
+        assert direction().edit.placeholderText() == "180"
+        assert [b.isChecked() for b in direction().buttons] == [True, False, False, False]
+        direction().buttons[3].click()                        # ↙
+        pump(app, 0.3)
+        assert window.document.entry(ref)["color_angle"] == 225
+        window._widget_edited(ref, "color_shape", "radial")
+        pump(app, 0.3)
+        assert direction() is None                            # radial has no angle
+        window._widget_edited(ref, "color_shape", None)
+        window._widget_edited(ref, "color_angle", None)
+        pump(app, 0.3)
         fit = window.inspector.findChild(QtWidgets.QComboBox, "opt.fit")
         assert fit.currentText() == "clip" and fit.count() == 3
 
@@ -311,14 +323,20 @@ def test_background_gradient(app, tmp_path: Path) -> None:
         field._emit()
         pump(app, 0.4)
         assert window.document.theme["background"] == ["#000000", "#0000ff"]
-        direction = find("theme.background_direction")
-        assert direction is not None and direction.currentText() == "vertical"
+        angle = find("theme.background_angle")
+        assert angle is not None and angle.buttons[0].isChecked()   # ↓ by default
         frame = window.engine.frame()
         assert frame.getpixel((300, 5))[2] < 10 and frame.getpixel((300, 1915))[2] > 245
-        window.edit_theme("background_direction", "horizontal", "x")
+        angle.buttons[1].click()                                  # →
         pump(app, 0.4)
         frame = window.engine.frame()
         assert frame.getpixel((2, 1000))[2] < 10 and frame.getpixel((459, 1000))[2] > 245
+        assert window.document.theme["background_angle"] == 90
+        window.edit_theme("background_shape", "radial", "x")
+        pump(app, 0.4)
+        assert find("theme.background_angle") is None
+        frame = window.engine.frame()
+        assert frame.getpixel((231, 960))[2] < 10 and frame.getpixel((0, 0))[2] > 245
     finally:
         window.undo.setClean()
         window.close()

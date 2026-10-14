@@ -73,7 +73,8 @@ belong to the plugin.
 orientation = "portrait"        # portrait | landscape
 background = "#0d0a15"          # a colour, or a list for a gradient:
 # background = ["#2a0f3d", "#05070d"]
-# background_direction = "radial"  # vertical | horizontal | diagonal | radial
+# background_shape = "radial"      # or "linear" (the default), at:
+# background_angle = 180           # degrees: 0 up, 90 right, 180 down
 wallpaper = "panel.jpg"         # optional image, drawn over it
 font = "DejaVuSans-Bold.ttf"    # theme-relative file, or a system family
 
@@ -215,7 +216,7 @@ cut it short with an `ellipsis`, or `shrink` the font until it fits
 format = "{value:%H:%M:%S}"
 source = "time"
 color = ["#fd44dd", "#11e3f5"]      # a gradient: a colour with more stops
-gradient_direction = "vertical"     # or "horizontal"
+color_angle = 90                    # left to right; 180 (the default) is top to bottom
 outline = "#000000"                 # a line round each letter
 outline_width = 2
 shadow = "#000000"                  # drop shadow ...
@@ -229,6 +230,19 @@ Any colour option that can be a gradient (a label's `color`, a gauge's
 or bar's `gradient`) takes one colour or a list; one colour is simply a
 gradient of one stop. In the editor it shows as a colour with a +
 beside it, and becomes a gradient when a second stop is added.
+
+A gradient painted across an area -- the panel's `background`, any
+widget's `background`, a label's `color` -- also has a shape and an
+angle, named after the option: `background_shape` and
+`background_angle`, `color_shape` and `color_angle`. Shape is `linear`
+(the default) or `radial`, from the middle out. The angle is in degrees
+as CSS has it: 0 runs bottom to top, 90 left to right, 180 top to
+bottom (the default), 270 right to left; the first and last colours
+land exactly in the corners, whatever the box's shape. In the editor
+the angle has buttons for the usual four -- ↓ → ↘ ↙ -- and takes any
+other typed. Gradients that follow the reading (a bar's or gauge's
+fill, a spectrum, a graph's line, a needle) have no angle: their
+colours go where the value does.
 
 A shadow with `shadow_x = 0`, `shadow_y = 0`, a bright colour and a
 larger blur is a glow. Effects stay inside the widget's box, so give a

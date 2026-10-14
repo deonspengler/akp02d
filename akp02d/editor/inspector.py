@@ -27,11 +27,11 @@ from .. import layout, sources
 from ..layout import Rect
 from ..plugins import BASE, lookup
 from ..schema import (
-    BOOLEAN, CHOICE, COLOR, COLORS, FONT, FORMAT, IMAGE, INTEGER, NUMBER, SECTIONS,
+    ANGLE, BOOLEAN, CHOICE, COLOR, COLORS, FONT, FORMAT, IMAGE, INTEGER, NUMBER, SECTIONS,
     SOURCE, STRING, ZONES, Auto, Option, Schema, Values,
 )
 from ..table import REQUIRED
-from ..theme import BACKGROUND_DIRECTIONS
+from ..gradient import SHAPES
 from . import controls, style
 from .document import Ref, ThemeDocument
 from .engine import ERROR, Problem, Slot, snap
@@ -285,15 +285,23 @@ class Inspector(QWidget):
                   "A colour under everything, or several for a gradient; the "
                   "wallpaper is drawn over it")
         if isinstance(theme.get("background"), list) and len(theme["background"]) > 1:
-            direction = controls.ChoiceField(BACKGROUND_DIRECTIONS)
-            direction.setObjectName("theme.background_direction")
-            direction.set_value(theme.get("background_direction"), "vertical")
-            direction.changed.connect(
-                lambda v: self.theme_edited.emit("background_direction", v))
-            self._row(form, "direction", direction, "background_direction" in theme,
-                      lambda: self.theme_edited.emit("background_direction", None),
-                      "vertical runs top to bottom; horizontal left to right; "
-                      "diagonal corner to corner; radial from the middle out")
+            shape = controls.ChoiceField(SHAPES)
+            shape.setObjectName("theme.background_shape")
+            shape.set_value(theme.get("background_shape"), "linear")
+            shape.changed.connect(lambda v: self.theme_edited.emit("background_shape", v))
+            self._row(form, "shape", shape, "background_shape" in theme,
+                      lambda: self.theme_edited.emit("background_shape", None),
+                      "linear runs across the panel at an angle; radial from the "
+                      "middle out")
+            if theme.get("background_shape", "linear") != "radial":
+                angle = controls.AngleField()
+                angle.setObjectName("theme.background_angle")
+                angle.set_value(theme.get("background_angle"), 180)
+                angle.changed.connect(lambda v: self.theme_edited.emit("background_angle", v))
+                self._row(form, "angle", angle, "background_angle" in theme,
+                          lambda: self.theme_edited.emit("background_angle", None),
+                          "Which way the gradient runs, in degrees: 0 bottom to top, "
+                          "90 left to right, 180 top to bottom, 270 right to left")
         wall = QWidget()
         wall_row = QHBoxLayout(wall)
         wall_row.setContentsMargins(0, 0, 0, 0)
@@ -571,6 +579,11 @@ class Inspector(QWidget):
         elif kind == BOOLEAN:
             field = controls.BoolField()
             field.set_value(value, option.default)
+            field.changed.connect(emit)
+            control = field
+        elif kind == ANGLE:
+            field = controls.AngleField()
+            field.set_value(value, _computed_default(option, values, spec))
             field.changed.connect(emit)
             control = field
         elif kind == CHOICE:
