@@ -193,11 +193,14 @@ class Audio:
     panel.
     """
 
-    __slots__ = ("_bars", "_level", "_stereo", "_start")
+    __slots__ = ("_bars", "_level", "_reverse", "_stereo", "_start")
 
-    def __init__(self, bars: int, stereo: bool) -> None:
+    def __init__(self, bars: int, stereo: bool, reverse: bool = False) -> None:
         self._bars = bars
         self._stereo = stereo and bars % 2 == 0
+        # cava's `reverse` flips the bar order: in stereo the lows go to
+        # the edges instead of the middle, in mono to the right.
+        self._reverse = reverse
         self._level = [0.0] * bars
         self._start = time.monotonic()
 
@@ -215,7 +218,13 @@ class Audio:
         level = self._level
         for i, value in enumerate(frame):
             level[i] = value if value > level[i] else level[i] * 0.82 + value * 0.18
-        return tuple(int(min(1.0, max(0.0, v)) * cava.MAX) for v in level)
+        out = tuple(int(min(1.0, max(0.0, v)) * cava.MAX) for v in level)
+        if not self._reverse:
+            return out
+        if self._stereo:
+            # Each channel flipped on its own: the lows at the edges.
+            return out[:half][::-1] + out[half:][::-1]
+        return out[::-1]
 
     @staticmethod
     def _music(now: float, count: int) -> list[float]:

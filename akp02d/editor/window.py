@@ -406,7 +406,12 @@ class EditorWindow(QMainWindow):
 
     def _theme_detail(self) -> str:
         theme = self.document.theme
-        return "wallpaper" if theme.get("wallpaper") else str(theme.get("background", ""))
+        if theme.get("wallpaper"):
+            return "wallpaper"
+        background = theme.get("background", "")
+        if isinstance(background, list):
+            return "gradient" if len(background) > 1 else str(background[0] if background else "")
+        return str(background)
 
     def _detail(self, ref: Ref) -> str:
         entry = self.document.entry(ref)

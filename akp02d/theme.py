@@ -40,6 +40,7 @@ from pathlib import Path
 from akp02 import Orientation
 from PIL import Image, ImageFont
 
+from . import gradient
 from .layout import Rect, screen_size
 from .plugins.base import WidgetSpec
 from .table import REQUIRED, SettingsError, Table, parse_color
@@ -170,9 +171,10 @@ def meta(table: Table, path: Path) -> Meta:
     orientation = table.choice("orientation", "landscape", ORIENTATIONS)
     screen = screen_size(orientation)
     wallpaper = table.string("wallpaper", None)
-    background = _background(
-        table.string("background", "#000000"), wallpaper, path, screen
-    )
+    stops = table.colors("background", ("#000000",))
+    direction = table.choice("background_direction", "vertical",
+                             {d: d for d in BACKGROUND_DIRECTIONS})
+    background = _background(stops, direction, wallpaper, path, screen)
     font_default = table.string("font", None)
     table.reject_unknown()
     return Meta(orientation, background, font_default, wallpaper)
@@ -193,12 +195,17 @@ def _build(top: Table, path: Path) -> Theme:
     )
 
 
+BACKGROUND_DIRECTIONS = ("vertical", "horizontal", "diagonal", "radial")
+
+
 def _background(
-    colour: str, wallpaper: str | None, path: Path, screen: tuple[int, int]
+    stops: tuple[tuple[int, int, int], ...], direction: str, wallpaper: str | None,
+    path: Path, screen: tuple[int, int]
 ) -> Image.Image:
     """The panel-sized image everything is drawn over.
 
-    A colour, optionally covered by a wallpaper file. Resolved to the
+    A colour -- or a gradient, a colour with more stops, running
+    `direction` -- optionally covered by a wallpaper file. Resolved to the
     full panel size once, so the startup full-screen draw and every
     widget's backdrop crop come from the same pixels.
 
@@ -208,7 +215,7 @@ def _background(
     colour is a wallpaper -- an image says exactly what it is, where a
     generated one needs a vocabulary of its own to describe.
     """
-    base = Image.new("RGB", screen, parse_color(colour, "theme.background"))
+    base = _fill(stops, direction, screen)
     if wallpaper is None:
         return base
     file = path / wallpaper
@@ -219,6 +226,34 @@ def _background(
         return _wallpaper(str(file), stat.st_mtime_ns, stat.st_size, screen)
     except OSError as exc:
         raise ThemeError(f"theme.wallpaper: cannot read {file}: {exc}") from exc
+
+
+@lru_cache(maxsize=4)
+def _fill(stops: tuple[tuple[int, int, int], ...], direction: str,
+          screen: tuple[int, int]) -> Image.Image:
+    """A flat colour, or the gradient through `stops`, at panel size.
+    Cached, as the wallpaper is: an editor rebuilds the theme on every
+    change. Callers copy before drawing on it."""
+    if len(stops) == 1:
+        return Image.new("RGB", screen, stops[0])
+    if direction == "radial":
+        # Pillow's ramp runs from the centre (0) to the edge (255); a
+        # panel is long, so stretch it to reach the far corners.
+        ramp = Image.radial_gradient("L").resize(screen, Image.Resampling.BILINEAR)
+    else:
+        down = Image.linear_gradient("L").resize(screen, Image.Resampling.BILINEAR)
+        # Turned a quarter anticlockwise, the top-to-bottom ramp runs
+        # left to right.
+        across = Image.linear_gradient("L").rotate(90, expand=True) \
+            .resize(screen, Image.Resampling.BILINEAR)
+        if direction == "vertical":
+            ramp = down
+        elif direction == "horizontal":
+            ramp = across
+        else:  # diagonal: top left to bottom right
+            ramp = Image.blend(down, across, 0.5)
+    tables = gradient.lut(stops)
+    return Image.merge("RGB", [ramp.point(table) for table in tables])
 
 
 @lru_cache(maxsize=4)

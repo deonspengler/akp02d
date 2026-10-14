@@ -235,7 +235,8 @@ class Engine:
             plugin_base.set_preview(False)
         if isinstance(widget, SpectrumWidget) and widget._stream is None:
             channels = entry.get("channels", "stereo")
-            widget._stream = simulate.Audio(widget._bars, channels == "stereo")
+            widget._stream = simulate.Audio(widget._bars, channels == "stereo",
+                                            entry.get("reverse") is True)
         widget.period = max(widget.period, 1.0 / self.LOOP_FPS)
         slot.widget = widget
         self._seed(widget)

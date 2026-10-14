@@ -71,7 +71,9 @@ belong to the plugin.
 ```toml
 [theme]
 orientation = "portrait"        # portrait | landscape
-background = "#0d0a15"          # a colour
+background = "#0d0a15"          # a colour, or a list for a gradient:
+# background = ["#2a0f3d", "#05070d"]
+# background_direction = "radial"  # vertical | horizontal | diagonal | radial
 wallpaper = "panel.jpg"         # optional image, drawn over it
 font = "DejaVuSans-Bold.ttf"    # theme-relative file, or a system family
 

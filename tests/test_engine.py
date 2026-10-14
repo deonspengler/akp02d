@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -171,6 +172,24 @@ def test_simulated_audio_shape() -> None:
     assert all(0 <= v <= 65535 for v in frame)
     # Stereo mirrors the lows into the middle, as cava does.
     assert frame[15] > frame[0] and frame[16] > frame[31]
+
+
+def test_simulated_audio_reverse() -> None:
+    """As cava's reverse: lows at the edges in stereo, on the right in mono."""
+    def average(audio):
+        frames = []
+        for _ in range(40):
+            frames.append(audio.read())
+            time.sleep(0.005)
+        return [sum(f[i] for f in frames) / len(frames) for i in range(32)]
+
+    edges = lambda f: sum(f[:4]) + sum(f[-4:])   # noqa: E731
+    middle = lambda f: sum(f[12:20])              # noqa: E731
+    normal = average(simulate.Audio(32, True))
+    flipped = average(simulate.Audio(32, True, reverse=True))
+    assert middle(normal) > edges(normal) and edges(flipped) > middle(flipped)
+    mono = average(simulate.Audio(32, False, reverse=True))
+    assert sum(mono[-8:]) > sum(mono[:8])
 
 
 def test_editor_reads_the_chosen_temperature_sensor(tmp_path: Path, monkeypatch) -> None:

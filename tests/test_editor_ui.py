@@ -291,3 +291,34 @@ def test_gauge_style_and_zones(app, tmp_path: Path) -> None:
     finally:
         window.undo.setClean()
         window.close()
+
+
+def test_background_gradient(app, tmp_path: Path) -> None:
+    """The panel's background is a colour or a gradient: a second stop
+    makes it one and brings out its direction."""
+    (tmp_path / "theme.toml").write_text(
+        '[theme]\norientation = "portrait"\nbackground = "#000000"\n\n'
+        '[[widget.label]]\nx = 8\ny = 0\nwidth = 160\nheight = 48\nformat = "Hi"\n')
+    window = EditorWindow(ThemeDocument.open(tmp_path), config.Config())
+    try:
+        window.show()
+        window._set_selection("theme")
+        pump(app, 0.2)
+        find = lambda name: window.inspector.findChild(QtWidgets.QWidget, name)  # noqa: E731
+        assert find("theme.background_direction") is None
+        field = find("theme.background")
+        field._stops = ["#000000", "#0000ff"]
+        field._emit()
+        pump(app, 0.4)
+        assert window.document.theme["background"] == ["#000000", "#0000ff"]
+        direction = find("theme.background_direction")
+        assert direction is not None and direction.currentText() == "vertical"
+        frame = window.engine.frame()
+        assert frame.getpixel((300, 5))[2] < 10 and frame.getpixel((300, 1915))[2] > 245
+        window.edit_theme("background_direction", "horizontal", "x")
+        pump(app, 0.4)
+        frame = window.engine.frame()
+        assert frame.getpixel((2, 1000))[2] < 10 and frame.getpixel((459, 1000))[2] > 245
+    finally:
+        window.undo.setClean()
+        window.close()

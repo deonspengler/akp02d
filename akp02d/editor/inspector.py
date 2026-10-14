@@ -31,6 +31,7 @@ from ..schema import (
     SOURCE, STRING, ZONES, Auto, Option, Schema, Values,
 )
 from ..table import REQUIRED
+from ..theme import BACKGROUND_DIRECTIONS
 from . import controls, style
 from .document import Ref, ThemeDocument
 from .engine import ERROR, Problem, Slot, snap
@@ -275,13 +276,24 @@ class Inspector(QWidget):
                   "Which way up the panel is used; a theme's coordinates are drawn "
                   "for one shape")
         form = self._group(column, "Background")
-        colour = controls.ColorField()
+        colour = controls.GradientField()
         colour.setObjectName("theme.background")
         colour.set_value(theme.get("background"), "#000000")
         colour.changed.connect(lambda v: self.theme_edited.emit("background", v))
         self._row(form, "background", colour, "background" in theme,
                   lambda: self.theme_edited.emit("background", None),
-                  "A colour under everything; the wallpaper is drawn over it")
+                  "A colour under everything, or several for a gradient; the "
+                  "wallpaper is drawn over it")
+        if isinstance(theme.get("background"), list) and len(theme["background"]) > 1:
+            direction = controls.ChoiceField(BACKGROUND_DIRECTIONS)
+            direction.setObjectName("theme.background_direction")
+            direction.set_value(theme.get("background_direction"), "vertical")
+            direction.changed.connect(
+                lambda v: self.theme_edited.emit("background_direction", v))
+            self._row(form, "direction", direction, "background_direction" in theme,
+                      lambda: self.theme_edited.emit("background_direction", None),
+                      "vertical runs top to bottom; horizontal left to right; "
+                      "diagonal corner to corner; radial from the middle out")
         wall = QWidget()
         wall_row = QHBoxLayout(wall)
         wall_row.setContentsMargins(0, 0, 0, 0)
