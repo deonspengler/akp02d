@@ -27,15 +27,16 @@ Options a style does not use are hidden in the editor.
 
 The arc takes one colour, picked from the gradient by the value it is
 showing, so a full gauge is red at a glance. `color_by = "position"`
-instead runs the ramp around the arc.
+instead runs the ramp around the arc. `caps = "round"` rounds its ends.
 
 Everything that does not move -- face, rim, track, zones, ticks, numbers
 and, on the dial and meter, the label -- is drawn once, at load, into the
-widget's backdrop, supersampled so its curves are smooth. A redraw is a
-paste of that, the arc's fill, the needle (supersampled over just its
-own bounding box) and the value text. The arc's track and fill are
-drawn at widget size, so their ends are stepped -- exactly as the gauge
-always drew them.
+widget's backdrop, supersampled so its curves are smooth. So is the
+arc's whole fill, with a map of how far round the arc each pixel lies;
+showing the fill up to a value is then one clamped linear map of that
+map (a soft, pixel-wide cut) -- no drawing at all. A redraw is a paste
+of the face, of the fill through that cut, the needle (supersampled
+over just its own bounding box) and the value text.
 
 Gliding needs frames between readings, so with `glide` the widget is
 visited at ANIM_FPS while the reading is still taken at `fps`; a
@@ -46,9 +47,10 @@ from __future__ import annotations
 
 import math
 import time
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from .. import gradient, sources
 from ..schema import (
@@ -143,6 +145,8 @@ class GaugeWidget(Widget):
         color("track", "#0a3c46", group="Arc", when=_is_arc,
               doc="The unfilled part of the arc"),
         integer("thickness", 12, 1, 128, group="Arc", when=_is_arc),
+        choice("caps", ("flat", "round"), "flat", group="Arc", when=_is_arc,
+               doc="The arc's ends: cut square, or rounded"),
         boolean("needle", False, group="Arc", when=_is_arc,
                 doc="A needle pointing at the value, coloured like the arc there"),
         # -- the scale --
@@ -209,7 +213,7 @@ class GaugeWidget(Widget):
                 doc="Size of the value text"),
     )
 
-    __slots__ = ("_box", "_by_level", "_centre", "_draw", "_fill", "_font", "_format",
+    __slots__ = ("_by_level", "_centre", "_colours", "_ring", "_draw", "_fill", "_font", "_format",
                  "_glide", "_hub", "_hub_fill", "_label", "_label_fill", "_label_font",
                  "_label_xy", "_last", "_last_time", "_lut", "_needle", "_needle_lut",
                  "_next_read", "_radius", "_range", "_read_period", "_shadow", "_shown",
@@ -252,7 +256,9 @@ class GaugeWidget(Widget):
 
         if self._style == "arc":
             pad = self._thickness // 2 + 1
-            self._box = (pad, pad, width - pad - 1, height - pad - 1)
+            self._ring = _ring((width, height), (width / 2 - pad, height / 2 - pad),
+                               self._thickness, self._start, self._sweep, o.caps == "round")
+            self._colours = None if self._by_level else self._ring.coloured(self._lut)
             self._centre = (width / 2 - 0.5, height / 2 - 0.5)
             # The inner edge of the arc's stroke: ticks and needle sit inside it.
             self._radius = min(width, height) / 2 - pad - self._thickness
@@ -310,14 +316,12 @@ class GaugeWidget(Widget):
         draw = ImageDraw.Draw(face)
         start, sweep = self._start, self._sweep
         if self._style == "arc":
-            # At widget size, as the gauge always drew it.
-            draw.arc(self._box, start, start + sweep, fill=self._track,
-                     width=self._thickness)
-            for low, high, colour in o.zones:
-                a0, a1 = self._angle(low), self._angle(high)
-                if a1 > a0:
-                    draw.arc(self._box, a0, a1, fill=_mix(self._track, colour, 0.6),
-                             width=self._thickness)
+            ring = self._ring
+            face.paste(self._track, (0, 0), ring.mask)
+            low, size = self._range
+            for zone_low, zone_high, colour in o.zones:
+                within = ring.between((zone_low - low) / size, (zone_high - low) / size)
+                face.paste(_mix(self._track, colour, 0.6), (0, 0), within)
         layer = Image.new("RGBA", (width * SS, height * SS), (0, 0, 0, 0))
         big = ImageDraw.Draw(layer)
         cx, cy = (c * SS for c in self._centre)
@@ -449,7 +453,7 @@ class GaugeWidget(Widget):
 
         self.clear()
         if self._style == "arc":
-            self._arc(fraction, int(round(self._sweep * fraction)))
+            self._arc(fraction)
         if self._needle is not None:
             self._draw_needle(fraction)
         if self._style == "arc" and self._label:
@@ -462,23 +466,18 @@ class GaugeWidget(Widget):
                             anchor=anchor)
         return True
 
-    def _arc(self, fraction: float, degrees: int) -> None:
-        if not degrees:
+    def _arc(self, fraction: float) -> None:
+        """The fill: the ring drawn once at load, shown up to `fraction`."""
+        if fraction <= 0:
             return
-        start = self._start
-        if self._by_level:
-            self._draw.arc(self._box, start, start + degrees,
-                           fill=gradient.colour_at(self._lut, fraction),
-                           width=self._thickness)
-            return
-        # Two degrees at a time, coloured by angle, so the ramp runs round
-        # the arc rather than picking one colour.
-        for step in range(0, degrees, 2):
-            self._draw.arc(
-                self._box, start + step, start + min(step + 2.6, degrees),
-                fill=gradient.colour_at(self._lut, step / self._sweep),
-                width=self._thickness,
-            )
+        ring = self._ring
+        shown = ring.upto(fraction)
+        # The colour at the value: the whole fill's when it is one colour,
+        # and the tip's when the ramp runs round the arc.
+        colour = gradient.colour_at(self._lut, fraction)
+        self.surface.paste(colour if self._colours is None else self._colours, (0, 0), shown)
+        if ring.round_caps and fraction < 1:
+            _fill_circle(self.surface, ring.point(fraction), ring.thickness / 2, colour)
 
     def _draw_needle(self, fraction: float) -> None:
         length, width = self._needle
@@ -508,6 +507,107 @@ class GaugeWidget(Widget):
             _fill_circle(self.surface, (cx, cy), self._hub, hub)
             if self._hub_fill is not None and self._hub_fill != colour:
                 _fill_circle(self.surface, (cx, cy), max(1.5, self._hub * 0.38), colour)
+
+
+class _Ring:
+    """An arc's stroke, antialiased, and how far round it each pixel is.
+
+    Built once per geometry (and cached): `mask` is the stroke itself,
+    drawn at SS times and scaled down; `position` holds, for each pixel
+    of it, how far along the sweep it lies, in 1/SCALE steps, in a 32-bit
+    image. Showing the arc up to a value is then one linear map of that
+    image -- clamped to 0..255, with a pixel-wide soft edge at the cut --
+    times the mask: a couple of C loops, not a redraw.
+
+    A round cap's pixels count as the start (0) or end (SCALE), so the
+    caps come and go with the ends they belong to.
+    """
+
+    SCALE = 1 << 16
+
+    def __init__(self, size, axes, thickness, start, sweep, round_caps) -> None:
+        width, height = size
+        cx, cy = width / 2, height / 2
+        a, b = axes                                # outer semi-axes
+        self.thickness = thickness
+        self.round_caps = round_caps
+        self._start, self._sweep = start, sweep
+        self._centre = (cx, cy)
+        self._mid = (a - thickness / 2, b - thickness / 2)
+        big = Image.new("L", (width * SS, height * SS), 0)
+        draw = ImageDraw.Draw(big)
+        draw.arc((round((cx - a) * SS), round((cy - b) * SS),
+                  round((cx + a) * SS) - 1, round((cy + b) * SS) - 1),
+                 start, start + sweep, fill=255, width=thickness * SS)
+        if round_caps:
+            r = thickness / 2 * SS
+            for end in (0.0, 1.0):
+                x, y = (v * SS for v in self.point(end))
+                draw.ellipse((x - r, y - r, x + r, y + r), fill=255)
+        self.mask = big.reduce(SS)
+        coverage = self.mask.tobytes()
+        mid_a, mid_b = max(self._mid[0], 0.5), max(self._mid[1], 0.5)
+        gap = 360.0 / sweep
+        positions = []
+        for y in range(height):
+            dy = (y + 0.5 - cy) / mid_b
+            row = y * width
+            for x in range(width):
+                if not coverage[row + x]:
+                    positions.append(0)
+                    continue
+                angle = math.degrees(math.atan2(dy, (x + 0.5 - cx) / mid_a))
+                along = ((angle - start) % 360.0) / sweep
+                if along > 1.0:   # in a cap, past an end: which one is nearer
+                    along = 1.0 if along - 1.0 < gap - along else 0.0
+                positions.append(int(along * self.SCALE))
+        self.position = Image.new("I", size)
+        self.position.putdata(positions)
+        # A soft edge about a pixel wide, measured along the middle of
+        # the stroke.
+        length = math.radians(sweep) * (mid_a + mid_b) / 2
+        self._edge = max(1.0, self.SCALE / max(length, 1.0))
+
+    def point(self, fraction: float) -> tuple[float, float]:
+        """The middle of the stroke `fraction` of the way along."""
+        angle = math.radians(self._start + self._sweep * fraction)
+        (cx, cy), (a, b) = self._centre, self._mid
+        return cx + a * math.cos(angle), cy + b * math.sin(angle)
+
+    def _cut(self, at: float, keep_below: bool) -> Image.Image:
+        edge = self._edge
+        gain = 255.0 / edge
+        if keep_below:     # 255 before `at`, 0 after, a ramp between
+            return self.position.point(lambda v: v * -gain + (at + edge / 2) * gain) \
+                .convert("L")
+        return self.position.point(lambda v: v * gain - (at - edge / 2) * gain).convert("L")
+
+    def upto(self, fraction: float) -> Image.Image:
+        """The stroke from the start to `fraction` of the way along."""
+        at = 2.0 * self.SCALE if fraction >= 1.0 else fraction * self.SCALE
+        return ImageChops.multiply(self._cut(at, True), self.mask)
+
+    def between(self, low: float, high: float) -> Image.Image:
+        """The stroke from `low` to `high` of the way along (fractions)."""
+        lo = -self.SCALE if low <= 0 else low * self.SCALE
+        hi = 2.0 * self.SCALE if high >= 1 else high * self.SCALE
+        if hi <= lo:
+            return Image.new("L", self.mask.size, 0)
+        span = ImageChops.multiply(self._cut(hi, True), self._cut(lo, False))
+        return ImageChops.multiply(span, self.mask)
+
+    def coloured(self, tables) -> Image.Image:
+        """The whole stroke coloured by `tables`, each pixel by how far
+        along it is: the ramp running round the arc."""
+        along = self.position.point(lambda v: v * (255.0 / self.SCALE)).convert("L")
+        return Image.merge("RGB", [along.point(table) for table in tables])
+
+
+@lru_cache(maxsize=16)
+def _ring(size, axes, thickness, start, sweep, round_caps) -> _Ring:
+    """Cached: an editor rebuilds a widget on every change, and the
+    position map is the one costly part. Callers must not draw on it."""
+    return _Ring(size, axes, thickness, start, sweep, round_caps)
 
 
 def _point(cx: float, cy: float, r: float, degrees: float) -> tuple[float, float]:

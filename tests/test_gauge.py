@@ -156,3 +156,68 @@ def test_style_hides_what_it_does_not_use() -> None:
     assert "face" in shown("meter") and "gradient" not in shown("meter")
     assert "minor_ticks" not in shown("arc", ticks=0)
     assert "minor_ticks" in shown("dial", ticks=5)
+
+
+# -- the arc: smooth, cut at the value, flat or round ends --
+
+TRACK = (10, 60, 70)
+
+
+def arc(options: dict, value: float, size=(160, 160)):
+    w = gauge({"track": "#0a3c46", "gradient": "#ff0000", **options}, size=size, value=value)
+    w.render(0.0)
+    return w
+
+
+def on_stroke(w, fraction: float) -> tuple[int, int, int]:
+    x, y = w._ring.point(fraction)
+    return w.surface.getpixel((round(x), round(y)))
+
+
+def test_arc_is_antialiased() -> None:
+    w = arc({}, 0.5)
+    colours = {w.surface.getpixel((x, y)) for x in range(160) for y in range(160)}
+    # Edges blend into the background: far more than the three flat colours.
+    assert len(colours) > 20
+
+
+@pytest.mark.parametrize("value", [0.1, 0.5, 0.9])
+def test_arc_fills_to_the_value(value) -> None:
+    w = arc({}, value)
+    assert on_stroke(w, value - 0.03) == RED
+    assert on_stroke(w, value + 0.03) == TRACK
+
+
+def test_arc_empty_and_full() -> None:
+    assert on_stroke(arc({}, 0.0), 0.02) == TRACK
+    full = arc({"caps": "round"}, 1.0)
+    assert on_stroke(full, 0.99) == RED and on_stroke(full, 1.0) == RED
+
+
+def test_round_caps_reach_past_the_ends() -> None:
+    """Half a thickness beyond each end: the cap, where flat ends stop."""
+    def beyond(w, fraction, past):
+        cx, cy = w._ring._centre
+        (a, b) = w._ring._mid
+        angle = math.radians(w._start + w._sweep * fraction) + past
+        return w.surface.getpixel((round(cx + a * math.cos(angle)), round(cy + b * math.sin(angle))))
+
+    step = 4 / 60      # radians: about four pixels round the middle of the stroke
+    flat, rounded = arc({"thickness": 16}, 0.5), arc({"thickness": 16, "caps": "round"}, 0.5)
+    assert beyond(flat, 0.0, -step) == BG and beyond(rounded, 0.0, -step) == RED
+    assert beyond(flat, 1.0, step) == BG and beyond(rounded, 1.0, step) == TRACK
+    # The fill's own tip is rounded too: just past the value, still filled.
+    assert on_stroke(rounded, 0.5 + 0.01) == RED
+
+
+def test_position_colours_run_round_the_arc() -> None:
+    w = arc({"color_by": "position", "gradient": ["#0000ff", "#ff0000"]}, 1.0)
+    start, end = on_stroke(w, 0.03), on_stroke(w, 0.97)
+    assert start[2] > start[0] and end[0] > end[2]
+
+
+def test_arc_zones_tint_the_track() -> None:
+    w = arc({"zones": [[0.8, 1.0, "#ff0000"]]}, 0.2)
+    zone = on_stroke(w, 0.9)
+    assert zone != TRACK and zone[0] > TRACK[0] + 50
+    assert on_stroke(w, 0.6) == TRACK

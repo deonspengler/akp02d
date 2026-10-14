@@ -266,8 +266,9 @@ zones = [[0.8, 1.0, "#e63232"]]  # [from, to, colour], in the reading's units
 glide = 0.4                    # seconds to swing to a new reading; 0 jumps
 ```
 
-* **arc** -- the filling arc. `needle = true` adds a needle coloured
-  like the arc where it points, and `ticks = 10` a scale inside it.
+* **arc** -- the filling arc, smooth-edged. `caps = "round"` rounds its
+  ends (the fill's tip too), `needle = true` adds a needle coloured like
+  the arc where it points, and `ticks = 10` a scale inside it.
 * **dial** -- a round face with ticks, numbers and a tapered needle on a
   hub, like a car's.
 * **meter** -- a cream meter face; the needle pivots from below
@@ -283,8 +284,9 @@ defaults suit it, so `style = "meter"` alone gives a finished meter. A
 0..1 reading (cpu, memory, disk) is numbered 0-100 on the scale, while
 its `zones`, like `min` and `max`, stay in the reading's own units.
 
-The face, ticks, numbers and zones are drawn once, at load, so a redraw
-is the needle and the value: about a millisecond. With `glide` the
+The face, ticks, numbers and zones are drawn once, at load, and so is
+the arc's whole fill; a redraw shows the fill up to the value, then the
+needle and the value text: well under a millisecond. With `glide` the
 widget is redrawn at 30 fps while the needle moves, and not at all when
 it is still; the reading is still taken at `fps`.
 
