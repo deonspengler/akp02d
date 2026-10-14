@@ -172,7 +172,9 @@ def test_color_is_one_colour_or_a_gradient(app, tmp_path: Path) -> None:
         def labels():
             return [w.text() for w in window.inspector.findChildren(QtWidgets.QLabel)]
 
-        assert not field().is_gradient and field().edit.text() == "#ff8800"
+        assert not field().is_gradient and field()._stops == ["#ff8800"]
+        # Just the swatch: no hex text beside it.
+        assert not field().findChildren(QtWidgets.QLineEdit)
         assert direction() is None                 # nothing to direct yet
         assert not any("olour-safe" in t for t in labels())
         assert "gradient" not in labels()

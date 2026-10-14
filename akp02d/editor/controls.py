@@ -48,22 +48,29 @@ def hex_of(colour: QColor) -> str:
 
 
 class Swatch(QToolButton):
-    """A colour chip that opens a picker."""
+    """A colour chip that opens a picker (whose own hex box takes a typed
+    value). Its tooltip names the colour; Space or Enter opens it from
+    the keyboard."""
 
     picked = Signal(str)
 
-    def __init__(self, parent: QWidget | None = None, size: int = 22) -> None:
+    def __init__(self, parent: QWidget | None = None, size: int = 22,
+                 focusable: bool = False) -> None:
         super().__init__(parent)
         self._colour: QColor | None = None
+        self._invalid = False
         self.setFixedSize(QSize(size, size))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        # The text beside a swatch takes the same colour from the keyboard.
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # A field's own swatch takes Tab; a gradient's many chips do not,
+        # so Tab still goes field to field.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus if focusable
+                            else Qt.FocusPolicy.NoFocus)
         self.clicked.connect(self._pick)
         self.setAccessibleName("Pick colour")
 
-    def set_colour(self, colour: QColor | None) -> None:
+    def set_colour(self, colour: QColor | None, invalid: bool = False) -> None:
         self._colour = colour
+        self._invalid = invalid
         self.update()
 
     def _pick(self) -> None:
@@ -78,17 +85,28 @@ class Swatch(QToolButton):
         if not self.isEnabled():
             painter.setOpacity(0.25)   # set aside: still there, plainly not in use
         box = QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        if self._colour is None:
+        if self._invalid:
+            # A colour the theme names that cannot be read.
+            painter.setPen(QPen(QColor(style.BAD), 1.5, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif self._colour is None:
             painter.setPen(QPen(QColor(style.FAINT), 1, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
         else:
-            painter.setPen(QPen(QColor(style.BORDER), 1))
+            painter.setPen(QPen(QColor(style.ACCENT if self.hasFocus() else style.BORDER), 1))
             painter.setBrush(self._colour)
         painter.drawRoundedRect(box, 4, 4)
 
 
+def _describe(value: str | None, default: str | None) -> str:
+    if value:
+        return value if rgb(value) is not None else f"{value} -- not a colour Pillow reads"
+    return f"{default} (default)" if default else "none"
+
+
 class ColorField(QWidget):
-    """Swatch plus text: any colour Pillow reads ("#rrggbb", "white")."""
+    """A colour, as a swatch: click it to pick. Any colour Pillow reads
+    ("#rrggbb", "white") is accepted from the theme file."""
 
     changed = Signal(object)
 
@@ -97,38 +115,34 @@ class ColorField(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        self.swatch = Swatch(self)
-        self.edit = QLineEdit(self)
-        self.edit.setMaximumWidth(110)
+        self.swatch = Swatch(self, focusable=True)
         layout.addWidget(self.swatch)
-        layout.addWidget(self.edit)
         layout.addStretch(1)
-        self.setFocusProxy(self.edit)
+        self.setFocusProxy(self.swatch)
         self.swatch.picked.connect(self._picked)
-        self.edit.editingFinished.connect(self._typed)
         self._value: str | None = None
         self._default: str | None = None
+
+    @property
+    def value(self) -> str | None:
+        return self._value
 
     def set_value(self, value: Any, default: Any = None) -> None:
         self._value = value if isinstance(value, str) else None
         self._default = default if isinstance(default, str) else None
-        self.edit.setText(self._value or "")
-        self.edit.setPlaceholderText(self._default or "none")
-        self.swatch.set_colour(rgb(self._value or self._default))
-        self.edit.setProperty("invalid", bool(self._value) and rgb(self._value) is None)
-        self.edit.style().polish(self.edit)
+        self._show()
+
+    def _show(self) -> None:
+        invalid = bool(self._value) and rgb(self._value) is None
+        self.swatch.set_colour(rgb(self._value or self._default), invalid)
+        self.swatch.setToolTip(_describe(self._value, self._default))
 
     def _picked(self, colour: str) -> None:
-        self.edit.setText(colour)
-        self._typed()
-
-    def _typed(self) -> None:
-        text = self.edit.text().strip() or None
-        if text == self._value:
+        if colour == self._value:
             return
-        self._value = text
-        self.swatch.set_colour(rgb(text or self._default))
-        self.changed.emit(text)
+        self._value = colour
+        self._show()
+        self.changed.emit(colour)
 
 
 class GradientBar(QWidget):
@@ -174,7 +188,6 @@ class GradientField(QWidget):
         self.row = QHBoxLayout()
         self.row.setSpacing(4)
         outer.addLayout(self.row)
-        self.edit: QLineEdit | None = None
         self._stops: list[str] = []
         self._explicit = False
 
@@ -196,7 +209,6 @@ class GradientField(QWidget):
                 # make it a window of its own for a moment.
                 old.hide()
                 old.deleteLater()
-        self.edit = None
         self.bar.setVisible(self.is_gradient)
         self.bar.stops = [rgb(s) or QColor("#000000") for s in self._stops]
         self.bar.update()
@@ -212,19 +224,13 @@ class GradientField(QWidget):
                 self.row.addWidget(chip)
         else:
             stop = self._stops[0] if self._stops else None
-            chip = Swatch(self)
-            chip.set_colour(rgb(stop))
+            chip = Swatch(self, focusable=True)
+            chip.set_colour(rgb(stop), bool(stop) and rgb(stop) is None)
+            chip.setToolTip(_describe(stop if self._explicit else None,
+                                      None if self._explicit else stop))
             chip.picked.connect(lambda colour: self._set(0, colour))
             self.row.addWidget(chip)
-            self.edit = QLineEdit(self)
-            self.edit.setMaximumWidth(110)
-            # The default shows as a placeholder, as other fields show theirs.
-            self.edit.setText(stop or "" if self._explicit else "")
-            self.edit.setPlaceholderText(stop if stop and not self._explicit else "none")
-            self.edit.setProperty("invalid", bool(stop) and rgb(stop) is None)
-            self.edit.editingFinished.connect(self._typed)
-            self.row.addWidget(self.edit)
-            self.setFocusProxy(self.edit)
+            self.setFocusProxy(chip)
         add = QToolButton(self)
         add.setText("+")
         add.setToolTip("Add a stop" if self.is_gradient
@@ -236,19 +242,6 @@ class GradientField(QWidget):
         add.clicked.connect(self._add)
         self.row.addWidget(add)
         self.row.addStretch(1)
-
-    def _typed(self) -> None:
-        assert self.edit is not None
-        text = self.edit.text().strip()
-        current = self._stops[0] if self._stops and self._explicit else ""
-        if text == current:
-            return
-        if not text:
-            self._stops = []
-            self.changed.emit(None)     # back to the default
-            self._rebuild()
-            return
-        self._set(0, text)
 
     def _menu(self, index: int, chip: QWidget, pos) -> None:
         menu = QMenu(self)
