@@ -127,6 +127,11 @@ class Option:
     # `idle` title): a widget that shows no text has no use for it, and a
     # tool need not offer it there.
     text_only: bool = False
+    # CHOICE: values an older theme may hold, read as one of today's
+    # choices. Each maps to a choice, or to a function of the table's
+    # other values (`peek(key)`) that picks one. Tools show the mapped
+    # choice; the old value is never offered.
+    legacy: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def required(self) -> bool:
@@ -136,6 +141,13 @@ class Option:
         if isinstance(self.default, Auto):
             return self.default.compute(values, spec)
         return self.default
+
+    def modern(self, value: Any, peek: Callable[[str], Any]) -> Any:
+        """A CHOICE value as today's choices say it."""
+        if isinstance(value, str) and value in self.legacy:
+            new = self.legacy[value]
+            return new(peek) if callable(new) else new
+        return value
 
     def suggestions(self, values: Values) -> list[tuple[str, str]]:
         if self.suggest is None:
@@ -175,7 +187,7 @@ class Option:
         if kind == BOOLEAN:
             return table.boolean(key, default)
         if kind == CHOICE:
-            value = table.string(key, default)
+            value = self.modern(table.string(key, default), table.peek)
             if value not in self.choices:
                 raise table.fail(key, _expected(self.choices), value)
             return value
@@ -277,6 +289,8 @@ class Schema:
         for option in self.options:
             if option.key in raw:
                 value = raw[option.key]
+                if option.kind == CHOICE:
+                    value = option.modern(value, raw.get)
                 if option.kind == SOURCE and resolve is not None:
                     value = resolve(value)
             else:

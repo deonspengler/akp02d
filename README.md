@@ -181,11 +181,18 @@ height = 318
 fps = 30
 type = "radial"                 # bars | mirrored | segmented | radial
 bars = 48
+channels = "stereo"             # stereo | both | left | right
 peaks = true
 gradient = ["#fd44dd", "#11e3f5"]
 smoothing = 30                  # cava's noise_reduction, 0-100
 when_silent = "sweep"           # or "none"
 ```
+
+`channels`: `stereo` shows the two channels side by side, mirrored with
+the low notes in the middle (so `bars` must be even); `both` mixes them
+into one, lows on the left; `left` and `right` show that channel alone.
+An older theme's `channels = "mono"` still loads, as `both` -- or as
+`left` or `right` if it set cava's `mono_option`.
 
 After five seconds with nothing from cava -- a pause, the end of a
 playlist, a muted tab -- a spectrum runs a peak across its bars and back

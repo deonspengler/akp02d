@@ -617,7 +617,8 @@ class Inspector(QWidget):
             control = field
         elif kind == CHOICE:
             field = controls.ChoiceField(option.choices)
-            field.set_value(value, label)
+            # An older theme's value, shown as the choice it now means.
+            field.set_value(option.modern(value, entry.get), label)
             field.changed.connect(emit)
             control = field
         elif kind == COLOR:

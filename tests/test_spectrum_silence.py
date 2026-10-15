@@ -136,3 +136,57 @@ def test_stereo_sweep_runs_out_from_the_middle() -> None:
     sweep.reset()
     home = sweep.frame(period * 1.9, 5.0)
     assert max(range(16), key=home.__getitem__) > max(range(16), key=edge.__getitem__)  # back in
+
+
+# -- channels --
+
+
+def cava_text(monkeypatch, options: dict) -> str:
+    """The cava config a spectrum would start cava with."""
+    from akp02d.plugins import cava
+
+    seen: list[str] = []
+    real = cava.config
+    monkeypatch.setattr(cava, "config", lambda *a: seen.append(real(*a)) or seen[-1])
+    theme = Theme(name="t", path=Path("."), orientation=Orientation.PORTRAIT,
+                  background=Image.new("RGB", (462, 1920), BG), font_default=None,
+                  widgets=())
+    spec = WidgetSpec("spectrum#1", "spectrum", Rect(0, 0, 160, 80), None,
+                      Table({"bars": 16, **options}))
+    set_preview(True)
+    try:
+        lookup("spectrum")(spec, theme)
+    finally:
+        set_preview(False)
+    return seen[-1]
+
+
+def output(text: str) -> dict[str, str]:
+    section = text.split("[output]")[1].split("[")[0]
+    return dict(line.split(" = ", 1) for line in section.strip().splitlines())
+
+
+def test_the_four_channel_choices(monkeypatch) -> None:
+    assert output(cava_text(monkeypatch, {}))["channels"] == "stereo"
+    for choice, mono in (("both", "average"), ("left", "left"), ("right", "right")):
+        out = output(cava_text(monkeypatch, {"channels": choice}))
+        assert out["channels"] == "mono" and out["mono_option"] == mono
+
+
+def test_an_older_mono_theme_still_loads(monkeypatch) -> None:
+    out = output(cava_text(monkeypatch, {"channels": "mono"}))
+    assert out["mono_option"] == "average"
+    out = output(cava_text(monkeypatch, {"channels": "mono", "mono_option": "right"}))
+    assert out["mono_option"] == "right"
+    schema = lookup("spectrum").schema
+    shown = schema.effective({"channels": "mono", "mono_option": "left"})
+    assert shown.channels == "left"                  # what the editor shows
+    assert "mono" not in schema["channels"].choices  # and never offers
+
+
+def test_an_unknown_channel_is_refused(monkeypatch) -> None:
+    import pytest
+    from akp02d.table import SettingsError
+
+    with pytest.raises(SettingsError, match="stereo, both, left, right"):
+        cava_text(monkeypatch, {"channels": "middle"})

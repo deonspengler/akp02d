@@ -8,7 +8,7 @@
     fps = 30
     type = "bars"                                 # bars|mirrored|segmented|radial
     bars = 32
-    channels = "stereo"                           # stereo | mono
+    channels = "stereo"                           # stereo | both | left | right
     smoothing = 30                                # 0 twitchy, 100 sluggish
     input = "pulse"                               # cava input method
     source = "auto"                               # what that method captures
@@ -123,6 +123,19 @@ class Sweep:
         return tuple(int(min(1.0, max(0.0, v)) * cava.MAX) for v in level)
 
 
+# What the panel shows, and how each is asked of cava: stereo is cava's
+# own; the other three are its mono, from both channels mixed or from
+# one of them.
+CHANNELS = ("stereo", "both", "left", "right")
+_MONO = {"both": "average", "left": "left", "right": "right"}
+
+
+def _from_mono(peek) -> str:
+    """An older theme's channels = "mono", with its mono_option."""
+    option = peek("mono_option")
+    return {"left": "left", "right": "right"}.get(option, "both")
+
+
 @register("spectrum")
 class SpectrumWidget(Widget):
     """An audio visualiser, driven by cava."""
@@ -139,10 +152,13 @@ class SpectrumWidget(Widget):
                    "bar takes one colour by how loud it is"),
         integer("bars", 32, 1, 512, group="Shape",
                 doc="Number of bars; must be even in stereo"),
-        choice("channels", cava.CHANNELS, "stereo", group="Audio"),
-        string("mono_option", None, group="Audio",
-               when=lambda v: v.channels == "mono",
-               doc="cava's mono_option: average, left or right"),
+        choice("channels", CHANNELS, "stereo", group="Audio",
+               legacy={"mono": _from_mono},
+               doc="stereo: both channels, mirrored, lows in the middle; "
+                   "both: the two mixed into one; left or right: that one alone"),
+        # What a "mono" theme said which channel to use, before channels
+        # said it itself. Read so such a theme still loads; never shown.
+        string("mono_option", None, group="Audio", when=lambda v: False),
         boolean("reverse", False, group="Shape",
                 doc="Swap low and high frequencies"),
         integer("smoothing", None, 0, 100, group="Audio",
@@ -202,7 +218,7 @@ class SpectrumWidget(Widget):
         # how loud it is (see color_by).
         by = o.color_by
         self._bars = o.bars
-        # cava's own default is stereo, which mirrors the channels with the
+        # Stereo, cava's own default, mirrors the channels with the
         # low frequencies in the middle -- on a ring that gives a shape
         # symmetric about the vertical, which is usually what you want.
         channels = o.channels
@@ -211,9 +227,10 @@ class SpectrumWidget(Widget):
                 f"widget {spec.id!r}: stereo splits the bars between two "
                 f"channels, so bars must be even; got {self._bars}"
             )
-        named: dict[str, dict] = {"output": {"channels": channels}}
-        if o.mono_option is not None:
-            named["output"]["mono_option"] = o.mono_option
+        if channels == "stereo":
+            named: dict[str, dict] = {"output": {"channels": "stereo"}}
+        else:
+            named = {"output": {"channels": "mono", "mono_option": _MONO[channels]}}
         if o.reverse:
             named["output"]["reverse"] = 1
         if o.smoothing is not None:
