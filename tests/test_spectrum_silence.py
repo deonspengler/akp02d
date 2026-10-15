@@ -85,13 +85,42 @@ def test_when_silent_none_stays_flat() -> None:
     assert lit(widget) == 0
 
 
+def peak(sweep, now: float) -> int:
+    sweep.reset()                                    # no tail from an earlier call
+    frame = sweep.frame(now, 5.0)
+    return max(range(len(frame)), key=frame.__getitem__)
+
+
 def test_sweep_moves_across_and_loops() -> None:
-    bars = 32
     period = spectrum_module.SWEEP_PERIOD_SEC
-    peak = lambda now: max(range(bars), key=lambda i: spectrum_module._sweep(bars, now, 5.0)[i])  # noqa: E731
-    positions = [peak(t * period / 4) for t in range(4)]
-    assert positions == sorted(positions)            # left to right
-    assert peak(0.0) == peak(period)                 # and round again
-    faint = max(spectrum_module._sweep(bars, 1.0, 0.1))
-    full = max(spectrum_module._sweep(bars, 1.0, 2.0))
-    assert faint < full                              # fades in
+    sweep = spectrum_module.Sweep(32, stereo=False)
+    positions = [peak(sweep, period * (0.1 + 0.2 * t)) for t in range(4)]
+    assert positions == sorted(positions) and positions[0] < positions[-1]   # left to right
+    assert peak(sweep, period * 0.3) == peak(sweep, period * 1.3)          # and round again
+    sweep.reset()
+    assert max(sweep.frame(0.0, 5.0)) == MAX                               # a full-height peak
+
+
+def test_sweep_trails_and_fades_in() -> None:
+    sweep = spectrum_module.Sweep(32, stereo=False)
+    t = 0.0
+    while t < 1.0:
+        frame = sweep.frame(t, 5.0)
+        t += 1 / 30
+    frame = sweep.frame(t, 5.0)
+    head = max(range(32), key=frame.__getitem__)
+    behind = [frame[i] for i in range(max(0, head - 8), max(0, head - 3))]
+    assert behind and all(0 < level < MAX for level in behind)   # a fading tail
+    fresh = spectrum_module.Sweep(32, stereo=False)
+    assert max(fresh.frame(1.0, 0.1)) < max(fresh.frame(1.0 + 1 / 30, 2.0))
+
+
+def test_stereo_sweep_runs_out_from_the_middle() -> None:
+    sweep = spectrum_module.Sweep(32, stereo=True)
+    period = spectrum_module.SWEEP_PERIOD_SEC
+    frame = sweep.frame(period * 0.1, 5.0)
+    left = max(range(16), key=frame.__getitem__)
+    right = max(range(16, 32), key=frame.__getitem__)
+    assert abs(left - (31 - right)) <= 1             # mirrored
+    later = sweep.frame(period * 0.5, 5.0)
+    assert max(range(16), key=later.__getitem__) < left    # moving outward

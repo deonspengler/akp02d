@@ -72,27 +72,52 @@ POSITION_MAP = {
 SILENCE = cava.MAX // 200
 # How long a silence lasts before the sweep starts, and how the sweep moves.
 SILENT_SEC = 5.0
-SWEEP_PERIOD_SEC = 2.8
+SWEEP_PERIOD_SEC = 1 / 0.35   # one pass across the bars
+SWEEP_WIDTH = 2.5             # bars either side of the peak that light
 SWEEP_FADE_SEC = 1.0
+SWEEP_RELEASE = 0.82          # per 1/30 s: the trail a falling bar leaves
 
 
-def _sweep(bars: int, now: float, since: float) -> tuple[int, ...]:
-    """A soft wave travelling across the bars, looping, as cava levels.
+class Sweep:
+    """A peak running across the bars, looping, as cava levels.
 
-    Left to right across the bars as drawn -- round the ring on a radial
-    one. It fades in over its first second, so a silence does not snap
-    into motion.
+    A full-height peak a few bars wide, with cava's own feel: a bar
+    jumps up as the peak arrives and falls back slowly, so the peak
+    drags a fading tail behind it. In stereo it runs out from the middle
+    to both edges, mirrored, as cava lays the two channels out -- the
+    right channel a little different, as real stereo is. It fades in
+    over its first second, so a silence does not snap into motion.
     """
-    centre = (now / SWEEP_PERIOD_SEC) % 1.0
-    width = max(0.06, 2.5 / max(bars, 1))
-    strength = min(1.0, since / SWEEP_FADE_SEC) * 0.6
-    out = []
-    for index in range(bars):
-        at = (index + 0.5) / bars
-        distance = min(abs(at - centre), 1.0 - abs(at - centre))   # wraps round
-        level = strength * math.exp(-(distance / width) ** 2) + 0.03 * strength
-        out.append(int(min(1.0, level) * cava.MAX))
-    return tuple(out)
+
+    __slots__ = ("_bars", "_stereo", "_level", "_time")
+
+    def __init__(self, bars: int, stereo: bool) -> None:
+        self._bars = bars
+        self._stereo = stereo and bars % 2 == 0
+        self.reset()
+
+    def reset(self) -> None:
+        self._level = [0.0] * self._bars
+        self._time: float | None = None
+
+    def frame(self, now: float, since: float) -> tuple[int, ...]:
+        half = self._bars // 2 if self._stereo else self._bars
+        centre = (now / SWEEP_PERIOD_SEC % 1.0) * max(half - 1, 0)
+        strength = min(1.0, max(0.0, since) / SWEEP_FADE_SEC)
+        target = [strength * max(0.0, 1.0 - abs(i - centre) / SWEEP_WIDTH)
+                  for i in range(half)]
+        if self._stereo:
+            other = [v * (0.85 + 0.15 * math.sin(now * 3.1 + i))
+                     for i, v in enumerate(target)]
+            target = target[::-1] + other
+        # Fast attack, slow release -- the same at any frame rate.
+        dt = 1 / 30 if self._time is None else max(0.0, now - self._time)
+        self._time = now
+        keep = SWEEP_RELEASE ** (dt * 30)
+        level = self._level
+        for i, value in enumerate(target):
+            level[i] = value if value > level[i] else level[i] * keep + value * (1 - keep)
+        return tuple(int(min(1.0, max(0.0, v)) * cava.MAX) for v in level)
 
 
 @register("spectrum")
@@ -149,8 +174,8 @@ class SpectrumWidget(Widget):
                 when=lambda v: v.origin is not None),
         colors("gradient", ("#00ff00", "#ffff00", "#ff0000"), group="Colour"),
         choice("when_silent", ("sweep", "none"), "sweep", group="Audio",
-               doc="After a few seconds of silence: sweep loops a soft wave "
-                   "across the bars until sound returns; none leaves them flat"),
+               doc="After a few seconds of silence: sweep runs a peak across "
+                   "the bars until sound returns; none leaves them flat"),
         sections("cava", group="Advanced",
                  doc="Extra cava settings, passed through verbatim"),
     )
@@ -243,7 +268,8 @@ class SpectrumWidget(Widget):
         self._velocity = [0.0] * self._bars
         self._time: float | None = None
         # When sound was last heard, for the sweep that fills a silence.
-        self._sweep = o.when_silent == "sweep"
+        self._sweep = (Sweep(self._bars, channels == "stereo")
+                       if o.when_silent == "sweep" else None)
         self._heard: float | None = None
 
         self._stream: cava.Stream | None = None
@@ -301,12 +327,14 @@ class SpectrumWidget(Widget):
             self._heard = now
         if frame is not None and max(frame, default=0) > SILENCE:
             self._heard = now
+            if self._sweep is not None:
+                self._sweep.reset()
         silent_for = now - self._heard
-        if self._sweep and silent_for >= SILENT_SEC:
+        if self._sweep is not None and silent_for >= SILENT_SEC:
             # Nothing heard for a while: a sweep, through the same drawing
             # as sound -- peaks and colours work on it unchanged. The first
             # real sound takes straight back over.
-            frame = _sweep(self._bars, now, silent_for - SILENT_SEC)
+            frame = self._sweep.frame(now, silent_for - SILENT_SEC)
         elif frame is None:
             return False  # no new audio: nothing can have changed
         span = self._span
