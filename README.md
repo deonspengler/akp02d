@@ -18,6 +18,44 @@ widget, and nothing else beyond Pillow and hidapi.
     python -m akp02d --check       # validate config and theme, no device
     python -m akp02d --stats -v    # run
 
+Everything akp02d reads lives in one place:
+
+    ~/.config/akp02d/akp02d.toml       the machine's settings
+    ~/.config/akp02d/themes/<name>/    every theme, by name
+
+(`~/.config` is `$XDG_CONFIG_HOME` when that is set.) The first run
+creates both, with a starter `akp02d.toml` and a copy of the default
+theme; every run copies in any theme akp02d ships that you do not have
+yet, and never touches one you do -- your copy is yours to edit.
+`akp02d --restore-theme default` puts the original back, keeping yours
+as `default.bak`. A theme name (`theme = "neon"`, `-t neon`) means a
+folder in `themes/` and nowhere else; a path (`-t ~/work/neon`) still
+runs one from anywhere, for developing it in place.
+
+`contrib/akp02d.service` runs it as a systemd user service.
+
+### Controlling it while it runs
+
+    akp02d ctl status              # what it shows, fps, brightness, uptime
+    akp02d ctl themes              # the themes it can show
+    akp02d ctl theme neon          # switch now
+    akp02d ctl theme neon --save   # ... and start with it from now on
+    akp02d ctl brightness 40
+    akp02d ctl reload
+
+These talk to the daemon over a Unix socket in `$XDG_RUNTIME_DIR`
+(owner-only), one JSON object per line each way -- `--json` prints the
+reply as it came, and any script can do the same:
+
+    echo '{"cmd": "theme", "name": "neon"}' | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/akp02d.sock
+
+A switch loads and builds the whole new theme before anything on the
+panel changes, so a theme with a mistake is refused -- with the reason
+-- and the panel keeps what it had. A switch lasts until the daemon
+restarts unless `--save` writes it to `akp02d.toml` (only the `theme`
+line changes; your comments stay). The socket also keeps a second
+daemon from starting and fighting the first for the panel.
+
 The running daemon watches its theme: save `theme.toml` (or replace the
 wallpaper) and the panel switches to the new version within a second.
 A save that does not load -- a typo, an overlap, a misaligned box -- is
@@ -56,10 +94,15 @@ text placement are the pixels the daemon will send.
   without that setting and flagged, not treated as errors.
 * Saving edits `theme.toml` in place: only changed lines change, and
   comments and the order of blocks are kept. With the daemon running,
-  saving is all it takes to see the result on the panel.
-
-The bundled default theme is read-only; saving it asks for a new name
-under `~/.config/akp02d/themes/`.
+  saving is all it takes to see the result on the panel -- when the
+  panel is showing this theme.
+* **Apply to panel** switches the running daemon to the theme in the
+  editor, saving it first; its arrow has **Apply and start with it**.
+  A theme the daemon refuses leaves the panel as it was, and the reason
+  is shown. The status bar says what the panel is showing ("Panel:
+  neon"), or that the daemon is not running.
+* Open and Save start in the themes folder, and a new theme is saved
+  there by name.
 
 ## Themes
 

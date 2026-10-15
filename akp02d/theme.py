@@ -106,12 +106,13 @@ class Theme:
 
 
 def find(name: str, search_paths: tuple[Path, ...]) -> Path:
-    """Locate a theme directory by name, first match wins.
+    """Locate a theme: by name in the themes folder, first match wins.
 
-    A name containing a path separator is taken as the directory
-    itself, which is handy for developing one in place.
+    A name with a path separator in it (or starting with . or ~) is
+    taken as the directory itself -- the way to run a theme from
+    anywhere, for developing one in place.
     """
-    if "/" in name or name.startswith("."):
+    if "/" in name or name.startswith((".", "~")):
         path = Path(name).expanduser()
         if (path / "theme.toml").is_file():
             return path
@@ -120,9 +121,12 @@ def find(name: str, search_paths: tuple[Path, ...]) -> Path:
         candidate = base.expanduser() / name
         if (candidate / "theme.toml").is_file():
             return candidate
+    from . import paths  # theme is imported early; paths imports nothing of ours
+
+    found = sorted({n for base in search_paths for n in paths.theme_names(base)})
     raise ThemeError(
-        f"theme {name!r} not found; looked in: "
-        f"{', '.join(str(p) for p in search_paths)}"
+        f"theme {name!r} not found in {', '.join(str(p) for p in search_paths)}"
+        + (f"; there are: {', '.join(found)}" if found else "")
     )
 
 

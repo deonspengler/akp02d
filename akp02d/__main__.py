@@ -12,7 +12,8 @@ from pathlib import Path
 
 from akp02 import AKP02, DeviceNotFoundError
 
-from . import __version__, config as config_module, layout, plugins, theme as theme_module
+from . import __version__, config as config_module, control, ctl, layout, paths, plugins
+from . import theme as theme_module
 from .plugins import base as plugins_base
 from .app import App
 from .layout import LayoutError
@@ -44,12 +45,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--check", action="store_true",
         help="load and validate the config and theme, then exit; no device needed",
     )
+    parser.add_argument(
+        "--restore-theme", metavar="NAME",
+        help="put a theme that ships with akp02d back as it shipped (yours is "
+             "kept as NAME.bak), then exit",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0)
     parser.add_argument("--version", action="version", version=f"akp02d {__version__}")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["ctl"]:
+        return ctl.main(argv[1:])
     args = parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -62,6 +71,28 @@ def main(argv: list[str] | None = None) -> int:
         # refusing. akp02d validates the same rule at load, so a warning
         # here means the two disagree -- worth a crash in development.
         warnings.simplefilter("error")
+
+    # First run: the config home and its themes. Every run: any theme
+    # that ships with akp02d and is not there yet (see paths.py).
+    try:
+        for done in paths.setup():
+            log.info("%s", done)
+    except OSError as exc:
+        log.warning("could not set up %s: %s", paths.config_home(), exc)
+
+    if args.restore_theme:
+        try:
+            restored, kept = paths.restore_theme(args.restore_theme)
+        except KeyError:
+            shipped = ", ".join(paths.theme_names(paths.bundled_themes_dir()))
+            log.error("akp02d does not ship a theme called %r; it ships: %s",
+                      args.restore_theme, shipped)
+            return 2
+        except OSError as exc:
+            log.error("could not restore %r: %s", args.restore_theme, exc)
+            return 2
+        log.info("restored %s%s", restored, f"; yours is now {kept}" if kept else "")
+        return 0
 
     try:
         cfg = config_module.load(args.config)
@@ -103,6 +134,17 @@ def main(argv: list[str] | None = None) -> int:
         log.info("ok")
         return 0
 
+    # The control socket first: it is also the lock that keeps a second
+    # daemon from fighting this one for the USB device.
+    try:
+        server = control.Server(lambda request: app.command(request))
+    except control.AlreadyRunning as exc:
+        log.error("%s; `akp02d ctl status` to see it", exc)
+        return 1
+    except OSError as exc:
+        log.warning("no control socket (%s); running without one", exc)
+        server = None
+
     try:
         panel = AKP02(
             jpeg_quality=cfg.device.jpeg_quality,
@@ -110,10 +152,13 @@ def main(argv: list[str] | None = None) -> int:
         )
     except (DeviceNotFoundError, ImportError) as exc:
         log.error("%s", exc)
+        if server is not None:
+            server.close()
         return 3
 
     app = App(cfg, loaded, panel, strict=args.strict, stats_interval=args.stats,
               watch=not args.no_watch)
+    app.control = server
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: app.stop())
 
@@ -132,6 +177,9 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         log.error("device error: %s", exc)
         return 3
+    finally:
+        if server is not None:
+            server.close()
     log.info("stopped")
     return 0
 

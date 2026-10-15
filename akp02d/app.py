@@ -52,6 +52,7 @@ Shape of a frame, and why:
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -61,13 +62,19 @@ from PIL import Image
 
 from akp02 import AKP02, Orientation
 
-from . import layout, plugins, theme as theme_module
+from typing import TYPE_CHECKING
+
+from . import __version__, config as config_module, layout, paths, plugins
+from . import theme as theme_module
 from .config import Config
 from .plugins.base import Widget
 from .plugins.label import reset_locale
 from .schema import IMAGE
 from .table import SettingsError
 from .theme import Theme
+
+if TYPE_CHECKING:
+    from .control import Server
 
 WATCH_INTERVAL_SEC = 1.0
 
@@ -138,6 +145,12 @@ class App:
         self._stop = False
         self.watch = watch
         self._stamp = _stamp(theme)
+        # The control socket, if the daemon runs one (see control.py),
+        # and whether a command swapped the theme under the loop.
+        self.control: Server | None = None
+        self._swapped = False
+        self.brightness = config.device.brightness
+        self._started = time.monotonic()
 
     # -- setup --
 
@@ -234,13 +247,23 @@ class App:
         # reported once rather than every second until it is fixed.
         self._stamp = stamp
         try:
-            theme = theme_module.load(self.theme.path)
-            # The locale check is per build: a label may change its own.
-            reset_locale()
-            widgets, screen = self._build(theme)
+            self.switch(self.theme.path)
         except (SettingsError, layout.LayoutError, OSError) as exc:
             log.error("theme changed but did not load; keeping the current one: %s", exc)
             return False
+        return True
+
+    def switch(self, path: Path) -> None:
+        """Run the theme at `path` instead.
+
+        Loaded, laid out and every widget built before anything on the
+        panel changes: a theme with a mistake raises, and the panel keeps
+        showing the current one.
+        """
+        theme = theme_module.load(path)
+        # The locale check is per build: a label may change its own.
+        reset_locale()
+        widgets, screen = self._build(theme)
         for widget in self.widgets:
             try:
                 widget.close()
@@ -249,9 +272,70 @@ class App:
         if theme.orientation is not self.theme.orientation:
             self.panel.orientation(theme.orientation)
         self.theme, self.widgets, self.screen = theme, widgets, screen
+        self._stamp = _stamp(theme)
+        self._swapped = True
         self._paint()
-        log.info("theme %r reloaded (%d widget(s))", theme.name, len(widgets))
-        return True
+        log.info("theme %r from %s (%d widget(s))", theme.name, path, len(widgets))
+
+    # -- the control socket --
+
+    def command(self, request: dict) -> dict:
+        """Answer one control request (see control.py)."""
+        cmd = request.get("cmd")
+        if cmd == "status":
+            return {
+                "ok": True, "theme": self.theme.name, "path": str(self.theme.path),
+                "orientation": self.theme.orientation.name.lower(),
+                "widgets": len(self.widgets), "fps": self.config.fps,
+                "brightness": self.brightness, "pid": os.getpid(),
+                "uptime": round(time.monotonic() - self._started, 1),
+                "version": __version__,
+            }
+        if cmd == "themes":
+            names = sorted({n for base in self.config.theme_paths
+                            for n in paths.theme_names(base)})
+            return {"ok": True, "themes": names, "current": self.theme.name,
+                    "folder": str(self.config.theme_paths[0])}
+        if cmd == "theme":
+            name = request.get("name")
+            if not isinstance(name, str) or not name:
+                return {"ok": False, "error": "theme needs a name"}
+            try:
+                path = theme_module.find(name, self.config.theme_paths)
+                self.switch(path)
+            except (SettingsError, layout.LayoutError, OSError) as exc:
+                return {"ok": False, "error": f"{exc}; still showing {self.theme.name!r}"}
+            saved = None
+            if request.get("save"):
+                try:
+                    saved = str(config_module.save_theme(name, self.config.source))
+                except OSError as exc:
+                    return {"ok": False, "error": f"switched, but not saved: {exc}"}
+            return {"ok": True, "theme": self.theme.name, "saved": saved}
+        if cmd == "brightness":
+            value = request.get("value")
+            if isinstance(value, bool) or not isinstance(value, int) \
+                    or not AKP02.BRIGHTNESS_MIN <= value <= AKP02.BRIGHTNESS_MAX:
+                return {"ok": False, "error": f"brightness is a whole number "
+                        f"{AKP02.BRIGHTNESS_MIN}-{AKP02.BRIGHTNESS_MAX}"}
+            self.panel.set_brightness(value)
+            self.brightness = value
+            return {"ok": True, "brightness": value}
+        if cmd == "reload":
+            try:
+                self.switch(self.theme.path)
+            except (SettingsError, layout.LayoutError, OSError) as exc:
+                return {"ok": False, "error": f"{exc}; still showing {self.theme.name!r}"}
+            return {"ok": True, "theme": self.theme.name}
+        return {"ok": False, "error": f"unknown command {cmd!r}; try status, themes, "
+                "theme, brightness or reload"}
+
+    def _wait(self, seconds: float) -> None:
+        """The pause between frames: on the socket if there is one."""
+        if self.control is not None:
+            self.control.serve(seconds)
+        elif seconds > 0:
+            time.sleep(seconds)
 
     # -- loop --
 
@@ -286,6 +370,7 @@ class App:
             if next_watch is not None and now >= next_watch:
                 next_watch = now + WATCH_INTERVAL_SEC
                 if self.reload_if_changed():
+                    self._swapped = False
                     widgets, screen = self.widgets, self.screen
                     assert screen is not None
                     now = monotonic()
@@ -346,9 +431,18 @@ class App:
                 next_stats = spent + self.stats_interval
 
             remaining = deadline - spent
-            if remaining > 0:
-                time.sleep(remaining)
-            else:
+            # Waiting on the control socket, when there is one: a command
+            # is answered within a frame, and a late frame still looks.
+            self._wait(max(0.0, remaining))
+            if self._swapped:
+                # A command switched the theme: draw the new one's widgets.
+                self._swapped = False
+                widgets, screen = self.widgets, self.screen
+                assert screen is not None
+                now = monotonic()
+                for widget in widgets:
+                    widget.due = now
+            if remaining <= 0:
                 stats.late_frames += 1
                 if remaining < -period:
                     # More than a whole frame behind: drop the missed

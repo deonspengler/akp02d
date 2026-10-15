@@ -22,14 +22,14 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QSizePolicy, QSplitter, QToolBar,
+    QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter, QToolBar, QToolButton,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 import akp02d
 from akp02 import Orientation
 
-from .. import config as config_module, sources
+from .. import config as config_module, control, paths, sources
 from ..layout import Rect
 from ..plugins import available, lookup
 from ..schema import SOURCE
@@ -172,6 +172,20 @@ class EditorWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         bar.addWidget(spacer)
+        # Apply: switch the running daemon to this theme. The arrow offers
+        # making it the theme akp02d starts with, too.
+        apply = QToolButton()
+        apply.setText("Apply to panel")
+        apply.setToolTip("Show this theme on the panel now (saves it first)")
+        apply.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        apply.clicked.connect(lambda _c=False: self.apply_to_panel())
+        menu = QMenu(apply)
+        menu.addAction("Apply and start with it",
+                       lambda: self.apply_to_panel(save=True))
+        apply.setMenu(menu)
+        apply.setObjectName("apply")
+        bar.addWidget(apply)
+        self.apply_button = apply
         export = QPushButton("Export PNG")
         export.clicked.connect(self.export_png)
         bar.addWidget(export)
@@ -294,8 +308,16 @@ class EditorWindow(QMainWindow):
         self.status_hover = QLabel()
         self.status_hover.setTextFormat(Qt.TextFormat.RichText)
         bar.addWidget(self.status_hover)
-        for label in (self.status_shape, self.status_mount, self.status_dirty):
+        # What the running daemon is showing, asked every few seconds.
+        self.status_panel = QLabel()
+        self.status_panel.setToolTip("The akp02d daemon, through its control socket")
+        for label in (self.status_panel, self.status_shape, self.status_mount,
+                      self.status_dirty):
             bar.addPermanentWidget(label)
+        self._panel_timer = QTimer(self)
+        self._panel_timer.timeout.connect(self.refresh_panel_status)
+        self._panel_timer.start(3000)
+        QTimer.singleShot(0, self.refresh_panel_status)
 
     def _build_actions(self) -> None:
         save_as = QAction("Save As…", self)
@@ -645,7 +667,7 @@ class EditorWindow(QMainWindow):
     def open_theme(self) -> None:
         if not self._confirm_discard():
             return
-        start = str(self.document.directory or Path.home())
+        start = str(self.document.directory or _themes_folder())
         name, _ = QFileDialog.getOpenFileName(self, "Open theme", start, "Theme (theme.toml)")
         if not name:
             return
@@ -674,9 +696,8 @@ class EditorWindow(QMainWindow):
                 QMessageBox.information(
                     self, "Save a copy",
                     "This theme ships inside akp02d, where an update would overwrite "
-                    "it. Save it as your own theme instead; then set theme = \"<name>\" "
-                    "in akp02d.toml.")
-            suggested = Path.home() / ".config" / "akp02d" / "themes" / (
+                    "it. Save it as your own theme, in your themes folder, instead.")
+            suggested = _themes_folder() / (
                 (doc.directory.name if doc.directory else "my-theme") +
                 ("-copy" if bundled else "")) / "theme.toml"
             name, _ = QFileDialog.getSaveFileName(self, "Save theme", str(suggested),
@@ -706,6 +727,51 @@ class EditorWindow(QMainWindow):
         self.undo.setClean()
         self._update_title()
         self.statusBar().showMessage(f"Saved {doc.path}", 4000)
+        return True
+
+    # -- the running daemon --
+
+    def refresh_panel_status(self) -> None:
+        try:
+            reply = control.request({"cmd": "status"}, timeout=0.5)
+        except control.ControlError:
+            self.status_panel.setText("Panel: not running")
+            self.status_panel.setStyleSheet(f"color: {style.FAINT};")
+            return
+        self.status_panel.setText(f"Panel: {reply.get('theme', '?')}")
+        self.status_panel.setStyleSheet(f"color: {style.OK};")
+
+    def apply_to_panel(self, save: bool = False) -> bool:
+        """Show this theme on the panel: saved first, then the daemon is
+        asked to switch. A theme with a mistake is refused by the daemon,
+        which keeps showing what it was; the reason comes back here."""
+        try:
+            control.request({"cmd": "status"}, timeout=0.5)
+        except control.ControlError:
+            QMessageBox.information(
+                self, "Panel not running",
+                "akp02d is not running, so there is nothing to apply the theme to.\n\n"
+                "Start it (for example systemctl --user start akp02d), then try again.")
+            return False
+        if self.document.path is None or not self.undo.isClean():
+            if not self.save():
+                return False
+        folder = self.document.directory
+        assert folder is not None
+        # By name when it lives in the themes folder -- the name is what
+        # akp02d.toml would hold -- else by its path.
+        name = folder.name if _inside(folder, _themes_folder()) else str(folder)
+        try:
+            reply = control.request({"cmd": "theme", "name": name, "save": save})
+        except control.ControlError as exc:
+            QMessageBox.warning(self, "Panel", str(exc))
+            return False
+        if not reply.get("ok"):
+            QMessageBox.warning(self, "Panel kept its theme", reply.get("error", "refused"))
+            return False
+        note = " (akp02d will start with it)" if reply.get("saved") else ""
+        self.statusBar().showMessage(f"Showing {reply.get('theme')} on the panel{note}", 5000)
+        self.refresh_panel_status()
         return True
 
     def export_png(self) -> None:
@@ -744,9 +810,13 @@ def controls_number(value: Any) -> str:
     return _number_text(value)
 
 
+def _themes_folder() -> Path:
+    return paths.themes_dir()
+
+
 def _inside(path: Path, folder: Path) -> bool:
     try:
-        path.resolve().relative_to(folder)
+        path.resolve().relative_to(folder.resolve())
     except ValueError:
         return False
     return True

@@ -12,7 +12,7 @@ import logging
 import sys
 from pathlib import Path
 
-from .. import __version__, config as config_module, theme as theme_module
+from .. import __version__, config as config_module, paths, theme as theme_module
 from ..table import SettingsError
 
 
@@ -61,6 +61,12 @@ def main(argv: list[str] | None = None) -> int:
     style.apply(app)
 
     problems: list[str] = []
+    # The same home the daemon keeps: the themes folder, stocked with the
+    # themes akp02d ships (see paths.py).
+    try:
+        paths.setup()
+    except OSError as exc:
+        problems.append(f"Could not set up {paths.config_home()}: {exc}")
     try:
         cfg = config_module.load(args.config)
     except SettingsError as exc:

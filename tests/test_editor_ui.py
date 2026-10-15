@@ -25,6 +25,7 @@ from akp02d import config  # noqa: E402
 from akp02d.editor import controls, style  # noqa: E402
 from akp02d.editor.document import Ref, ThemeDocument  # noqa: E402
 from akp02d.editor.window import EditorWindow  # noqa: E402
+from test_control import daemon, home  # noqa: E402,F401  (fixtures)
 
 
 class _Spy(QtCore.QObject):
@@ -337,6 +338,64 @@ def test_background_gradient(app, tmp_path: Path) -> None:
         assert find("theme.background_angle") is None
         frame = window.engine.frame()
         assert frame.getpixel((231, 960))[2] < 10 and frame.getpixel((0, 0))[2] > 245
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_apply_to_panel(app, monkeypatch, request) -> None:
+    """The editor switches the running daemon to the theme it shows:
+    saved first, by name from the themes folder; a theme the daemon
+    refuses leaves the panel as it was, and says why."""
+    from test_control import add_theme
+    request.getfixturevalue("home")
+    daemon = request.getfixturevalue("daemon")
+    from akp02d import paths
+
+    warnings: list[str] = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning",
+                        staticmethod(lambda _p, _t, text, *a, **k: warnings.append(text)))
+    folder = add_theme("mine")
+    window = EditorWindow(ThemeDocument.open(folder), daemon.config)
+    try:
+        window.show()
+        window.refresh_panel_status()
+        assert window.status_panel.text() == "Panel: start"
+        # An unsaved edit is saved, then shown.
+        window._widget_edited(Ref("label", 1), "size", 30)
+        pump(app, 0.2)
+        assert window.apply_to_panel()
+        assert "size = 30" in (folder / "theme.toml").read_text()
+        assert window.status_panel.text() == "Panel: mine"
+        assert daemon.theme.name == "mine"
+        # A mistake: refused, the panel keeps "mine", the reason shown.
+        window._widget_edited(Ref("label", 1), "size", "huge")
+        pump(app, 0.2)
+        assert not window.apply_to_panel()
+        assert warnings and "size" in warnings[-1] and "still showing 'mine'" in warnings[-1]
+        assert daemon.theme.name == "mine"
+        # And to start with it.
+        window._widget_edited(Ref("label", 1), "size", 24)
+        pump(app, 0.2)
+        assert window.apply_to_panel(save=True)
+        assert 'theme = "mine"' in paths.config_file().read_text()
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_apply_without_a_daemon(app, monkeypatch, request) -> None:
+    request.getfixturevalue("home")
+    from test_control import add_theme
+    shown: list[str] = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information",
+                        staticmethod(lambda _p, title, *a, **k: shown.append(title)))
+    window = EditorWindow(ThemeDocument.open(add_theme("solo")), config.Config())
+    try:
+        window.show()
+        window.refresh_panel_status()
+        assert window.status_panel.text() == "Panel: not running"
+        assert not window.apply_to_panel() and shown == ["Panel not running"]
     finally:
         window.undo.setClean()
         window.close()
