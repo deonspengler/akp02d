@@ -245,7 +245,7 @@ def test_add_image_then_pick_where_pictures_come_from(app, tmp_path: Path, monke
         assert any("needs a picture" in p.message for p in window.engine.problems())
 
         # Cover art: the simulated playlist's covers come as data: URLs.
-        window._widget_edited(ref, "source", "media")
+        window._widget_edited(ref, "source", "now_playing")
         pump(app, 0.3)
         widget = window.engine.slots[-1].widget
         assert widget is not None and widget._art is not None
@@ -638,6 +638,24 @@ def test_rename_and_delete(app, themes, monkeypatch) -> None:
         # The open theme went: the editor moved to one that is left.
         assert window.document.directory.name in paths.theme_names()
         assert "broken" not in window.theme_list.names()
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_image_source_says_what_it_shows(app, tmp_path: Path) -> None:
+    (tmp_path / "theme.toml").write_text(
+        '[theme]\norientation = "portrait"\n\n[[widget.image]]\n'
+        'x = 8\ny = 0\nwidth = 120\nheight = 120\nsource = "now_playing"\n')
+    window = EditorWindow(ThemeDocument.open(tmp_path), config.Config())
+    try:
+        window.show()
+        window._set_selection(Ref("image", 1))
+        pump(app, 0.2)
+        field = window.inspector.findChild(QtWidgets.QComboBox, "opt.source")
+        items = [field.itemText(i) for i in range(field.count())]
+        assert items == ["none: the file at path", "now_playing — the cover of what is playing"]
+        assert field.currentData() == "now_playing"
     finally:
         window.undo.setClean()
         window.close()

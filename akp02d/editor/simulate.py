@@ -25,7 +25,7 @@ from typing import Any
 from .. import sources
 from ..plugins import cava
 
-KNOWN = ("time", "cpu", "memory", "disk", "network", "temperature", "media", "volume")
+KNOWN = ("time", "cpu", "memory", "disk", "network", "temperature", "now_playing", "volume")
 
 # A made-up playlist, so a now-playing block can be designed in silence.
 # One long title, to show what `fit` does with it.
@@ -144,7 +144,7 @@ class StandIn:
         name = self.name
         if name not in KNOWN or name == "time":
             return self.real.read(now)
-        if name == "media":
+        if name == "now_playing":
             from .. import media
 
             cycle = sum(track[3] for track in _PLAYLIST)
@@ -156,7 +156,7 @@ class StandIn:
             track = media.Track(status="Playing", player="simulated", artist=artist,
                                 title=title, album=album, length=float(length),
                                 position=at, at=now, art=_cover(index), volume=0.7)
-            fields = sources.media_fields(track, now, getattr(self.real, "_idle", ""))
+            fields = sources.now_playing_fields(track, now, getattr(self.real, "_idle", ""))
             return fields["value"], fields
         if name == "volume":
             # Set in 5% steps, as volume keys do, wandering slowly, and

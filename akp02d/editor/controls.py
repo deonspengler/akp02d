@@ -721,17 +721,21 @@ class SourceField(ChoiceField):
     """A data source, by name."""
 
     def __init__(self, names: Sequence[str], required: bool,
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None, *, none_text: str = "none (fixed text)",
+                 labels: dict[str, str] | None = None) -> None:
         super().__init__(names, parent)
         self._required = required
+        self._none_text = none_text
+        # Shown instead of a bare name, e.g. what an image source shows.
+        self._labels = labels or {}
 
     def set_value(self, value: Any, default_label: str = "") -> None:  # type: ignore[override]
         self.blockSignals(True)
         self.clear()
         if not self._required or not value:
-            self.addItem("choose a source…" if self._required else "none (fixed text)", None)
+            self.addItem("choose a source…" if self._required else self._none_text, None)
         for choice in self._choices:
-            self.addItem(choice, choice)
+            self.addItem(self._labels.get(choice, choice), choice)
         self._value = value if isinstance(value, str) else None
         if self._value is not None and self._value not in self._choices:
             self.addItem(f"{self._value} (unknown)", self._value)

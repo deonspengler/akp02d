@@ -215,7 +215,7 @@ def art_widget(path: Path, options: dict, monkeypatch):
     monkeypatch.setattr(media, "installed", lambda: True)
     set_dry_run(True)     # no playerctl: the source is swapped below
     try:
-        w = widget(path, {"source": "media", **options}, size=(60, 60))
+        w = widget(path, {"source": "now_playing", **options}, size=(60, 60))
     finally:
         set_dry_run(False)
     w._source.close()

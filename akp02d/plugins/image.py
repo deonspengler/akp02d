@@ -15,7 +15,7 @@
 carries its pictures with it. Transparency is honoured: a PNG with an
 alpha channel sits over the wallpaper, not in a box.
 
-Or the picture comes from a source -- `source = "media"` shows the cover
+Or the picture comes from a source -- `source = "now_playing"` shows the cover
 of what is playing, whether the player hands it over as a file, a
 download, or inline base64 (see artwork.py). `path` is then the picture
 shown while there is no cover; without one, the background shows. A
@@ -120,10 +120,10 @@ class ImageWidget(Widget):
     """A picture: a file, still or animated, or a source's (cover art)."""
 
     default_fps = 1.0
-    summary = "A picture: a file in the theme's folder, or cover art from media"
+    summary = "A picture: a file in the theme's folder, or the cover of what is playing"
     schema = Schema(
         source(accepts=(sources.PICTURE,), group="Image",
-               doc="Where a changing picture comes from: media for the cover "
+               doc="Where a changing picture comes from: now_playing for the cover "
                    "of what is playing. Empty shows `path`"),
         image("path", None, group="Image",
               doc="An image file in the theme's folder (PNG, JPEG, WebP, "
@@ -159,7 +159,7 @@ class ImageWidget(Widget):
         if self._source is None and not o.path:
             raise PluginError(f"widget {self.id!r}: needs a picture: set path to an "
                               "image file, or source to where pictures come from "
-                              "(media for cover art)")
+                              "(now_playing for the cover of what is playing)")
         self._fit = (o.fit, ALIGNS[o.align])
         self._radius = o.radius
         self._opacity = o.opacity

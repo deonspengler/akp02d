@@ -60,8 +60,10 @@ class Source:
     # source but no format. Offered by editors as suggestions.
     formats: tuple[str, ...] = ("{value}",)
     # Whether its fields carry a picture as `art`: a URL (file://,
-    # https://, or data: with the image inline), or "" for none.
+    # https://, or data: with the image inline), or "" for none -- and
+    # what that picture is, for an editor's image dropdown.
     pictures = False
+    picture_summary = ""
 
     def __init__(self, options: Table, widget: str) -> None:
         self.schema.read(options)
@@ -438,7 +440,7 @@ def _interface_address(name: str) -> str | None:
     return socket.inet_ntoa(packed[20:24])
 
 
-class MediaSource(Source):
+class NowPlayingSource(Source):
     """What a media player is playing, via playerctl.
 
     Every widget following the same player shares one playerctl process
@@ -459,6 +461,7 @@ class MediaSource(Source):
     fields = ("title", "artist", "album", "status", "player", "position", "length",
               "remaining", "position_s", "length_s", "value", "percent", "art", "volume")
     pictures = True   # the cover art, for an image widget
+    picture_summary = "the cover of what is playing"
     formats = ("{title}", "{artist} · {title}", "{artist}", "{album}",
                "{position} / {length}", "{remaining}", "{status}")
     summary = "What a media player is playing (needs playerctl)"
@@ -487,7 +490,7 @@ class MediaSource(Source):
         if self._stream is None and self._may_start():
             self._stream = media.acquire(self._player)
         track = self._stream.read(now) if self._stream is not None else media.Track(at=now)
-        fields = media_fields(track, now, self._idle)
+        fields = now_playing_fields(track, now, self._idle)
         return fields["value"], fields
 
     def close(self) -> None:
@@ -581,7 +584,7 @@ def _clock(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
 
 
-def media_fields(track, now: float, idle: str) -> dict[str, Any]:
+def now_playing_fields(track, now: float, idle: str) -> dict[str, Any]:
     """Format fields for a track, as of `now`."""
     position = track.position_now(now)
     length = track.length
@@ -809,7 +812,7 @@ _REGISTRY: dict[str, type[Source]] = {
     "uptime": UptimeSource,
     "kernel": KernelSource,
     "ip": IpSource,
-    "media": MediaSource,
+    "now_playing": NowPlayingSource,
     "volume": VolumeSource,
 }
 

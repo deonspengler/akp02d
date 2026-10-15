@@ -225,7 +225,7 @@ which is why static text needs no plugin of its own.
 | `uptime` | text | `value` (`3d 4h 12m`), `days`, `hours`, `minutes`, `total_hours` |
 | `kernel` | text | `value` (release), `version`, `machine` |
 | `ip` | text | `value` (IPv4 of the default route, or of `interface`) |
-| `media` | 0..1 (track progress) | `title`, `artist`, `album`, `status`, `player`, `position`, `length`, `remaining`, `position_s`, `length_s`, `percent`, `art`, `volume` (`player`, `idle`) |
+| `now_playing` | 0..1 (track progress) | `title`, `artist`, `album`, `status`, `player`, `position`, `length`, `remaining`, `position_s`, `length_s`, `percent`, `art`, `volume` (`player`, `idle`) |
 | `volume` | 0..1 (what you hear) | `text` (`65%` or `muted`), `percent`, `muted`, `device` (`device`, `input`) |
 
 Gauges, bars and graphs draw the numeric kinds; labels show anything.
@@ -236,23 +236,23 @@ with the current reading.
 
 ### Now playing
 
-`media` reads [playerctl](https://github.com/altdesktop/playerctl), so
+`now_playing` reads [playerctl](https://github.com/altdesktop/playerctl), so
 it works with any MPRIS player: Spotify, mpv, a browser, ... A
 now-playing block is a few widgets sharing one source:
 
 ```toml
 [[widget.label]]
-source = "media"
+source = "now_playing"
 format = "{title}"
 fit = "ellipsis"         # or "shrink", or "clip" (the default)
 idle = "nothing playing" # shown as the title when no player is running
 
 [[widget.label]]
-source = "media"
+source = "now_playing"
 format = "{artist} · {album}"
 
 [[widget.bar]]
-source = "media"         # fills as the track plays
+source = "now_playing"   # fills as the track plays
 format = "{position} / {length}"
 ```
 
@@ -280,7 +280,7 @@ glide = 0.3
 
 `volume` reads the sound server through `pactl` (in the `libpulse`
 package), which works with PipeWire as well as PulseAudio. Like the
-media source, nothing polls: every widget on the same device shares one
+now_playing source, nothing polls: every widget on the same device shares one
 `pactl subscribe`, so the panel follows a volume key the moment it is
 pressed and costs nothing while nothing changes; if the sound server
 restarts, it reconnects. `device` picks an output other than the
@@ -291,7 +291,7 @@ instead -- a "mic muted" light is a label on `{text}`.
 the level set either way. PipeWire allows boosting past 100%: the usual
 range stays 0-100%, so a bar is simply full beyond it, unless the
 widget sets `max = 1.5`. A player's own volume (Spotify's slider) is a
-different thing: that is the media source's `{volume}`.
+different thing: that is the now_playing source's `{volume}`.
 
 ### Label effects
 
@@ -423,7 +423,7 @@ x = 16
 y = 16
 width = 120
 height = 120
-source = "media"         # the cover of the current track
+source = "now_playing"   # the cover of the current track
 path = "no-cover.png"    # optional: shown while there is none
 fit = "cover"
 radius = 12

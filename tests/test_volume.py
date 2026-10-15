@@ -166,10 +166,10 @@ def test_parse_is_strict_about_garbage() -> None:
     assert not volume.parse("nonsense@@akp02d@@x@@akp02d@@y@@akp02d@@[]", False).known
 
 
-def test_player_volume_on_media() -> None:
+def test_player_volume_on_now_playing() -> None:
     line = media.SEP.join(("Playing", "spotify", "1", "2", "A", "T", "Al", "", "0.42"))
     assert media.parse(line, 0.0).volume == pytest.approx(0.42)
-    fields = sources.media_fields(media.parse(line, 0.0), 0.0, "idle")
+    fields = sources.now_playing_fields(media.parse(line, 0.0), 0.0, "idle")
     assert fields["volume"] == pytest.approx(42)
     seven = media.SEP.join(("Playing", "x", "0", "0", "A", "T", "Al"))
-    assert sources.media_fields(media.parse(seven, 0.0), 0.0, "idle")["volume"] == 0.0
+    assert sources.now_playing_fields(media.parse(seven, 0.0), 0.0, "idle")["volume"] == 0.0

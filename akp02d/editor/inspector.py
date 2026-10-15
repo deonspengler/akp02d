@@ -494,7 +494,14 @@ class Inspector(QWidget):
             names = [name for name in sources.available()
                      if (cls := sources.lookup(name)) is not None
                      and (not option.accepts or sources.fits(cls, option.accepts))]
-            field = controls.SourceField(names, option.required)
+            if sources.PICTURE in option.accepts:
+                # An image's source: say what picture each one shows.
+                field = controls.SourceField(
+                    names, option.required, none_text="none: the file at path",
+                    labels={n: f"{n} — {sources.lookup(n).picture_summary}"
+                            for n in names if sources.lookup(n).picture_summary})
+            else:
+                field = controls.SourceField(names, option.required)
             field.set_value(value)
             for index in range(field.count()):
                 cls = sources.lookup(field.itemData(index) or "")

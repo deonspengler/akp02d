@@ -1,4 +1,4 @@
-"""The media source: one shared playerctl, fields, and label fit."""
+"""The now_playing source: one shared playerctl, fields, and label fit."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def settle(source, seconds: float = 1.0):
 
 
 def test_fields_from_playerctl(playerctl) -> None:
-    source = sources.create("media", Table({}), "w")
+    source = sources.create("now_playing", Table({}), "w")
     fields = settle(source)
     assert fields["title"] == "Afterglow" and fields["artist"] == "Lumen"
     assert fields["album"] == "Static Hearts" and fields["player"] == "spotify"
@@ -77,13 +77,13 @@ def test_fields_from_playerctl(playerctl) -> None:
 
 
 def test_one_process_shared_and_released(playerctl) -> None:
-    title = sources.create("media", Table({}), "a")
-    artist = sources.create("media", Table({}), "b")
-    progress = sources.create("media", Table({}), "c")
+    title = sources.create("now_playing", Table({}), "a")
+    artist = sources.create("now_playing", Table({}), "b")
+    progress = sources.create("now_playing", Table({}), "c")
     for source in (title, artist, progress):
         settle(source)
     assert follows(playerctl) == 1 and media.running() == 1
-    other = sources.create("media", Table({"player": "mpv"}), "d")
+    other = sources.create("now_playing", Table({"player": "mpv"}), "d")
     settle(other)
     assert follows(playerctl) == 2 and media.running() == 2
     process = media._STREAMS[None]._process
@@ -122,7 +122,7 @@ def test_position_counts_forward_and_resyncs(playerctl) -> None:
 
 
 def test_nothing_playing_shows_idle() -> None:
-    fields = sources.media_fields(media.Track(), 0.0, "— silence —")
+    fields = sources.now_playing_fields(media.Track(), 0.0, "— silence —")
     assert fields["title"] == "— silence —"
     assert fields["artist"] == "" and fields["position"] == "" and fields["value"] == 0.0
 
@@ -130,7 +130,7 @@ def test_nothing_playing_shows_idle() -> None:
 def test_check_does_not_start_playerctl(playerctl) -> None:
     set_dry_run(True)
     try:
-        source = sources.create("media", Table({}), "w")
+        source = sources.create("now_playing", Table({}), "w")
         source.read(0.0)
         assert follows(playerctl) == 0
     finally:
@@ -140,7 +140,7 @@ def test_check_does_not_start_playerctl(playerctl) -> None:
 def test_missing_playerctl(monkeypatch) -> None:
     monkeypatch.setattr(media, "installed", lambda: False)
     with pytest.raises(sources.SourceError, match="playerctl is not installed"):
-        sources.create("media", Table({}), "w")
+        sources.create("now_playing", Table({}), "w")
 
 
 def test_players_for_the_dropdown(playerctl) -> None:
@@ -151,7 +151,7 @@ def test_widget_close_releases_its_source(playerctl) -> None:
     theme = Theme(name="t", path=Path("."), orientation=Orientation.PORTRAIT,
                   background=Image.new("RGB", (462, 1920)), font_default=None, widgets=())
     spec = WidgetSpec("label#1", "label", Rect(0, 0, 300, 40), None,
-                      Table({"source": "media"}))
+                      Table({"source": "now_playing"}))
     label = lookup("label")(spec, theme)
     assert media.running() == 1
     label.close()
