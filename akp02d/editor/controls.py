@@ -22,7 +22,8 @@ from PIL import ImageColor
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QColorDialog, QComboBox, QHBoxLayout, QLabel, QLineEdit, QMenu,
+    QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
+    QLineEdit, QMenu,
     QPushButton,
     QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
 )
@@ -47,18 +48,72 @@ def hex_of(colour: QColor) -> str:
     return colour.name(QColor.NameFormat.HexRgb)
 
 
+class ColourDialog(QDialog):
+    """Qt's colour picker, with a Remove colour button for a gradient's
+    stops -- so taking one out needs no right-click."""
+
+    REMOVE = "remove"
+
+    def __init__(self, start: QColor, removable: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Choose colour")
+        column = QVBoxLayout(self)
+        self.picker = QColorDialog(start, self)
+        self.picker.setOptions(QColorDialog.ColorDialogOption.NoButtons
+                               | QColorDialog.ColorDialogOption.DontUseNativeDialog)
+        # A child widget, not a window of its own.
+        self.picker.setWindowFlags(Qt.WindowType.Widget)
+        column.addWidget(self.picker)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                   | QDialogButtonBox.StandardButton.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        self.removed = False
+        row = QHBoxLayout()
+        if removable:
+            # On the left, apart from OK and Cancel, where it is not hit
+            # by mistake.
+            remove = QPushButton("Remove colour", self)
+            remove.setObjectName("remove")
+            remove.setToolTip("Take this stop out of the gradient")
+            remove.setAutoDefault(False)
+            remove.clicked.connect(self._remove)
+            row.addWidget(remove)
+        row.addStretch(1)
+        row.addWidget(buttons)
+        column.addLayout(row)
+
+    def _remove(self) -> None:
+        self.removed = True
+        self.accept()
+
+    @classmethod
+    def ask(cls, start: QColor, removable: bool, parent: QWidget | None) -> str | None:
+        """The chosen colour as "#rrggbb", REMOVE, or None if cancelled."""
+        dialog = cls(start, removable, parent)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        if dialog.removed:
+            return cls.REMOVE
+        chosen = dialog.picker.currentColor()
+        return hex_of(chosen) if chosen.isValid() else None
+
+
 class Swatch(QToolButton):
     """A colour chip that opens a picker (whose own hex box takes a typed
     value). Its tooltip names the colour; Space or Enter opens it from
-    the keyboard."""
+    the keyboard. A removable one -- a stop of a gradient with others --
+    offers Remove colour in the picker too."""
 
     picked = Signal(str)
+    removed = Signal()
 
     def __init__(self, parent: QWidget | None = None, size: int = 22,
-                 focusable: bool = False) -> None:
+                 focusable: bool = False, removable: bool = False) -> None:
         super().__init__(parent)
         self._colour: QColor | None = None
         self._invalid = False
+        self.removable = removable
         self.setFixedSize(QSize(size, size))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         # A field's own swatch takes Tab; a gradient's many chips do not,
@@ -75,9 +130,11 @@ class Swatch(QToolButton):
 
     def _pick(self) -> None:
         start = self._colour or QColor("#ffffff")
-        chosen = QColorDialog.getColor(start, self, "Choose colour")
-        if chosen.isValid():
-            self.picked.emit(hex_of(chosen))
+        chosen = ColourDialog.ask(start, self.removable, self)
+        if chosen == ColourDialog.REMOVE:
+            self.removed.emit()
+        elif chosen is not None:
+            self.picked.emit(chosen)
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
@@ -214,10 +271,11 @@ class GradientField(QWidget):
         self.bar.update()
         if self.is_gradient:
             for index, stop in enumerate(self._stops):
-                chip = Swatch(self, 20)
+                chip = Swatch(self, 20, removable=True)
                 chip.set_colour(rgb(stop))
-                chip.setToolTip(f"{stop} -- click to change, right-click to remove")
+                chip.setToolTip(f"{stop} -- click to change or remove")
                 chip.picked.connect(lambda colour, i=index: self._set(i, colour))
+                chip.removed.connect(lambda i=index: self._remove(i))
                 chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 chip.customContextMenuRequested.connect(
                     lambda pos, i=index, c=chip: self._menu(i, c, pos))
@@ -248,6 +306,10 @@ class GradientField(QWidget):
         remove = menu.addAction("Remove stop")
         remove.setEnabled(len(self._stops) > 1)
         if menu.exec(chip.mapToGlobal(pos)) is remove:
+            self._remove(index)
+
+    def _remove(self, index: int) -> None:
+        if len(self._stops) > 1:
             del self._stops[index]
             self._emit()
 

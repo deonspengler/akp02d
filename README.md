@@ -102,20 +102,22 @@ text placement are the pixels the daemon will send.
   is shown. The status bar says what the panel is showing ("Panel:
   neon"), or that the daemon is not running.
 * **Themes**, above the layers, lists every theme in the themes folder:
-  the one open is bold, the one on the panel has a green dot. **Edit**
-  (or double-click), **Apply** and **Duplicate** are under the list;
-  **Rename** and **Delete** are on its right-click menu. Duplicate copies
-  the whole folder, wallpaper and images too. Apply on the open theme
-  with unsaved edits asks to save first. The theme on the panel cannot
-  be renamed or deleted, nor deleted while `akp02d.toml` starts with it;
-  renaming that one updates `akp02d.toml`. Delete moves the folder to the
-  desktop's trash, where a file manager can restore it. The list follows
-  the folder, so a theme added elsewhere shows up on its own.
+  the one open is bold, the one on the panel has a green dot. One click
+  opens a theme; **Apply to panel** on the toolbar puts the open one on
+  the panel. The icons beside the heading duplicate or delete the open
+  theme, and the right-click menu has **Rename** too. Duplicate copies
+  the whole folder, wallpaper and images too. The theme on the panel
+  cannot be renamed or deleted, nor deleted while `akp02d.toml` starts
+  with it; renaming that one updates `akp02d.toml`. Delete moves the
+  folder to the desktop's trash, where a file manager can restore it.
+  The list follows the folder, so a theme added elsewhere shows up on
+  its own.
 * Themes are named, not browsed for: **New** asks for a name and makes
   the theme in the themes folder; **Save** writes the open theme where
   it is, and only a theme with no home yet (or one that ships inside
   akp02d) asks for a name. **Save As** (Ctrl+Shift+S) saves a copy under
-  a new name. **Open** is still there for a theme folder elsewhere.
+  a new name. A theme folder elsewhere opens from the command line:
+  `akp02d-edit ~/work/mytheme`.
 
 ## Themes
 
@@ -311,7 +313,9 @@ shadow_alpha = 0.6
 Any colour option that can be a gradient (a label's `color`, a gauge's
 or bar's `gradient`) takes one colour or a list; one colour is simply a
 gradient of one stop. In the editor it shows as a colour with a +
-beside it, and becomes a gradient when a second stop is added.
+beside it, and becomes a gradient when a second stop is added; clicking
+a stop opens the colour picker, which has **Remove colour** for taking
+it out again.
 
 A gradient painted across an area -- the panel's `background`, any
 widget's `background`, a label's `color` -- also has a shape and an

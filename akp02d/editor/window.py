@@ -156,8 +156,6 @@ class EditorWindow(QMainWindow):
 
         self.act_new = action("New", "new", QKeySequence.StandardKey.New,
                               self.new_theme, "New theme")
-        self.act_open = action("Open", "open", QKeySequence.StandardKey.Open,
-                               self.open_theme, "Open a theme")
         self.act_save = action("Save", "save", QKeySequence.StandardKey.Save,
                                self.save, "Save")
         # Fixed labels, with what they would undo in the tooltip: the
@@ -214,22 +212,12 @@ class EditorWindow(QMainWindow):
         stack = QSplitter(Qt.Orientation.Vertical, left)
         stack.setHandleWidth(1)
         stack.setChildrenCollapsible(False)
-        themes_box = QWidget()
-        themes_column = QVBoxLayout(themes_box)
-        themes_column.setContentsMargins(0, 12, 0, 0)
-        themes_column.setSpacing(0)
-        heading = QLabel("THEMES")
-        heading.setObjectName("heading")
-        heading.setContentsMargins(14, 0, 14, 6)
-        themes_column.addWidget(heading)
         self.theme_list = ThemeList()
         self.theme_list.edit.connect(self.edit_named)
-        self.theme_list.apply.connect(self.apply_named)
         self.theme_list.duplicate.connect(self.duplicate_named)
         self.theme_list.rename.connect(self.rename_named)
         self.theme_list.delete.connect(self.delete_named)
-        themes_column.addWidget(self.theme_list, 1)
-        stack.addWidget(themes_box)
+        stack.addWidget(self.theme_list)
         layers_box = QWidget()
         layers_column = QVBoxLayout(layers_box)
         layers_column.setContentsMargins(0, 12, 0, 0)
@@ -712,20 +700,6 @@ class EditorWindow(QMainWindow):
         self._replace(document)
         self.theme_list.reload()
 
-    def open_theme(self) -> None:
-        if not self._confirm_discard():
-            return
-        start = str(self.document.directory or _themes_folder())
-        name, _ = QFileDialog.getOpenFileName(self, "Open theme", start, "Theme (theme.toml)")
-        if not name:
-            return
-        try:
-            document = ThemeDocument.open(Path(name))
-        except (OSError, DocumentError) as exc:
-            QMessageBox.warning(self, "Cannot open", str(exc))
-            return
-        self._replace(document)
-
     def _replace(self, document: ThemeDocument) -> None:
         self.engine.close()
         self.engine = Engine(inverted=self.config.device.inverted)
@@ -783,36 +757,21 @@ class EditorWindow(QMainWindow):
     # -- the themes list --
 
     def edit_named(self, name: str) -> None:
+        """Open a theme from the list (one click). Kept unsaved changes
+        -- Cancel -- leave the open theme selected, as it still is."""
         folder = _themes_folder() / name
         if self.document.directory is not None and _same(self.document.directory, folder):
             return
         if not self._confirm_discard():
+            self.theme_list.show_open()
             return
         try:
             document = ThemeDocument.open(folder / "theme.toml")
         except (OSError, DocumentError) as exc:
             QMessageBox.warning(self, "Cannot open", str(exc))
+            self.theme_list.show_open()
             return
         self._replace(document)
-
-    def apply_named(self, name: str) -> bool:
-        """Show a theme from the list on the panel. The open one, with
-        edits not saved, asks first -- else the panel would show the
-        version on disk without a word."""
-        folder = _themes_folder() / name
-        is_open = self.document.directory is not None and _same(self.document.directory, folder)
-        if is_open and not self.undo.isClean():
-            answer = QMessageBox.question(
-                self, "Unsaved changes",
-                f"{name} has changes that are not saved. Save them first, so the "
-                f"panel shows them?",
-                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel)
-            if answer == QMessageBox.StandardButton.Cancel:
-                return False
-            if answer == QMessageBox.StandardButton.Save and not self.save():
-                return False
-        return self._send_theme(name, save=False)
 
     def duplicate_named(self, name: str) -> None:
         if not self._confirm_discard():

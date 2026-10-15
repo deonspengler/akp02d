@@ -19,6 +19,8 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtCore = pytest.importorskip("PySide6.QtCore")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QtGui = pytest.importorskip("PySide6.QtGui")
+QTest = pytest.importorskip("PySide6.QtTest").QTest
 
 import akp02d  # noqa: E402
 from akp02d import config  # noqa: E402
@@ -463,7 +465,11 @@ def test_list_shows_the_themes_open_and_on_panel(app, themes) -> None:
         assert not item["start"].icon().isNull()                  # the panel's dot
         assert "On the panel now" in item["start"].toolTip()
         assert "On the panel" not in item["neon"].toolTip()
-        assert not listed.buttons["edit"].isEnabled()              # neon is open already
+        # Duplicate and delete act on the open theme; not deletable while
+        # it is the one on the panel.
+        assert listed.buttons["duplicate"].isEnabled() and listed.buttons["delete"].isEnabled()
+        window.edit_named("start")
+        assert not listed.buttons["delete"].isEnabled()
         # A theme added behind the editor's back appears on its own.
         shutil.copytree(paths.themes_dir() / "neon", paths.themes_dir() / "later")
         pump(app, 0.6)
@@ -473,34 +479,78 @@ def test_list_shows_the_themes_open_and_on_panel(app, themes) -> None:
         window.close()
 
 
-def test_edit_and_apply_from_the_list(app, themes, monkeypatch) -> None:
+def test_one_click_opens_a_theme(app, themes, monkeypatch) -> None:
     from akp02d import paths
     answers = Answers(monkeypatch)
     window = editor(paths.themes_dir() / "neon", themes.config)
     try:
-        window.edit_named("start")
+        listed = window.theme_list
+
+        def click(name):
+            row = listed.names().index(name)
+            item = listed.list.item(row)
+            QTest.mouseClick(listed.list.viewport(), QtCore.Qt.MouseButton.LeftButton,
+                             QtCore.Qt.KeyboardModifier.NoModifier,
+                             listed.list.visualItemRect(item).center())
+            pump(app, 0.1)
+
+        click("start")
         assert window.document.directory.name == "start"
-        # Unsaved edits to the open theme: asked, saved, then applied.
+        assert listed.selected() == "start"
+        # Unsaved changes, then a click elsewhere, then Cancel: nothing
+        # opens, and the open theme stays the one selected.
         window._widget_edited(Ref("label", 1), "size", 31)
         pump(app, 0.2)
-        answers.reply = QtWidgets.QMessageBox.StandardButton.Save
-        window.edit_named("neon")       # asks to save or discard first
-        answers.reply = QtWidgets.QMessageBox.StandardButton.Save
-        assert window.document.directory.name == "neon"
+        answers.reply = QtWidgets.QMessageBox.StandardButton.Cancel
+        monkeypatch.setattr(QtWidgets.QMessageBox, "exec",
+                            lambda self: QtWidgets.QMessageBox.StandardButton.Cancel)
+        click("neon")
+        assert window.document.directory.name == "start" and listed.selected() == "start"
+        # The toolbar's Apply puts the open theme on the panel (saved first).
+        window.edit_named("neon")       # leave start ... (Cancel: still on start)
+        assert window.document.directory.name == "start"
+        assert window.apply_to_panel()
+        assert themes.theme.name == "start"
         assert "size = 31" in (paths.themes_dir() / "start" / "theme.toml").read_text()
-        window._widget_edited(Ref("label", 1), "size", 33)
-        pump(app, 0.2)
-        assert window.apply_named("neon")
-        assert answers.questions and "not saved" in answers.questions[-1]
-        assert "size = 33" in (paths.themes_dir() / "neon" / "theme.toml").read_text()
-        assert themes.theme.name == "neon" and window.panel_theme == "neon"
-        # Not the open one: applied straight from disk, nothing asked.
-        before = len(answers.questions)
-        assert window.apply_named("start") and themes.theme.name == "start"
-        assert len(answers.questions) == before
+        # The heading's duplicate icon copies the open theme.
+        answers.names = ["start-2"]
+        listed.buttons["duplicate"].click()
+        assert window.document.directory.name == "start-2"
     finally:
         window.undo.setClean()
         window.close()
+
+
+def test_open_is_gone(app, themes) -> None:
+    from akp02d import paths
+    window = editor(paths.themes_dir() / "neon", themes.config)
+    try:
+        names = [a.text() for a in window.toolbar.actions()]
+        assert "Open" not in names and "New" in names and "Save" in names
+    finally:
+        window.close()
+
+
+def test_remove_a_gradient_stop_from_the_picker(app, monkeypatch) -> None:
+    from akp02d.editor.controls import ColourDialog, GradientField
+    field = GradientField()
+    field.set_value(["#ff0000", "#00ff00", "#0000ff"])
+    sent = []
+    field.changed.connect(sent.append)
+    chips = [w for w in field.findChildren(controls.Swatch) if w.removable]
+    assert len(chips) == 3
+    monkeypatch.setattr(ColourDialog, "ask", classmethod(lambda cls, *a: cls.REMOVE))
+    chips[1].click()
+    assert sent[-1] == ["#ff0000", "#0000ff"]
+    # The dialog itself: a Remove colour button only for a removable stop,
+    # and the picker inside it rather than a window of its own.
+    removable = ColourDialog(QtGui.QColor("#ff0000"), True)
+    plain = ColourDialog(QtGui.QColor("#ff0000"), False)
+    assert removable.findChild(QtWidgets.QPushButton, "remove") is not None
+    assert plain.findChild(QtWidgets.QPushButton, "remove") is None
+    assert not removable.picker.isWindow()
+    removable._remove()
+    assert removable.removed and removable.result() == QtWidgets.QDialog.DialogCode.Accepted
 
 
 def test_new_theme_is_named_not_browsed(app, themes, monkeypatch) -> None:

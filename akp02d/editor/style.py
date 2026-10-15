@@ -199,18 +199,27 @@ def _line_icon(draw, size: int = 20) -> QIcon:
 
 
 def action_icon(name: str) -> QIcon:
-    """Toolbar icons: new, open, save, undo, redo."""
+    """Toolbar icons: new, save, undo, redo; and the themes list's
+    duplicate and delete."""
 
     def new(p: QPainterPath) -> None:
         p.moveTo(9.5, 2); p.lineTo(4, 2); p.lineTo(4, 14); p.lineTo(12.5, 14)
         p.lineTo(12.5, 5); p.lineTo(9.5, 2); p.lineTo(9.5, 5); p.lineTo(12.5, 5)
         p.moveTo(8.25, 7.5); p.lineTo(8.25, 11.5); p.moveTo(6.25, 9.5); p.lineTo(10.25, 9.5)
 
-    def open_(p: QPainterPath) -> None:
-        p.moveTo(2, 12.5); p.lineTo(2, 3.5); p.lineTo(6, 3.5); p.lineTo(7.5, 5)
-        p.lineTo(13, 5); p.lineTo(13, 7)
-        p.moveTo(2, 12.5); p.lineTo(4, 7); p.lineTo(14.5, 7); p.lineTo(12.5, 12.5)
-        p.closeSubpath()
+    def duplicate(p: QPainterPath) -> None:
+        # Two sheets, the front one with a plus.
+        p.addRoundedRect(QRectF(5.5, 5.5, 8, 8), 1.2, 1.2)
+        p.moveTo(3.5, 10.5); p.lineTo(2.5, 10.5); p.lineTo(2.5, 2.5)
+        p.lineTo(10.5, 2.5); p.lineTo(10.5, 3.5)
+        p.moveTo(9.5, 7.5); p.lineTo(9.5, 11.5); p.moveTo(7.5, 9.5); p.lineTo(11.5, 9.5)
+
+    def delete(p: QPainterPath) -> None:
+        # A bin: lid, handle, body, two ribs.
+        p.moveTo(2.5, 4.5); p.lineTo(13.5, 4.5)
+        p.moveTo(6, 4.5); p.lineTo(6.5, 2.5); p.lineTo(9.5, 2.5); p.lineTo(10, 4.5)
+        p.moveTo(3.75, 4.5); p.lineTo(4.75, 13.5); p.lineTo(11.25, 13.5); p.lineTo(12.25, 4.5)
+        p.moveTo(6.75, 7); p.lineTo(7, 11.5); p.moveTo(9.25, 7); p.lineTo(9, 11.5)
 
     def save(p: QPainterPath) -> None:
         p.moveTo(2.5, 2.5); p.lineTo(11, 2.5); p.lineTo(13.5, 5); p.lineTo(13.5, 13.5)
@@ -228,5 +237,6 @@ def action_icon(name: str) -> QIcon:
         p.moveTo(13.5, 6.5); p.lineTo(6, 6.5)
         p.cubicTo(1, 6.5, 1, 13, 6, 13); p.lineTo(9.5, 13)
 
-    drawings = {"new": new, "open": open_, "save": save, "undo": undo, "redo": redo}
+    drawings = {"new": new, "save": save, "undo": undo, "redo": redo,
+                "duplicate": duplicate, "delete": delete}
     return _line_icon(drawings[name])
