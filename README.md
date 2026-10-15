@@ -74,9 +74,6 @@ text placement are the pixels the daemon will send.
 * Drag widgets to move them and drag handles to resize. Boxes always snap
   to colour-safe offsets, and a drop onto another widget is refused (hold
   Alt to place it anyway, e.g. while swapping two).
-* Hovering over the panel shows the pixel position and its colour in
-  the status bar, for lining widgets up and for taking a colour off
-  the wallpaper.
 * The settings panel is built from each plugin's declared options, so
   every option is there with its default shown, and options that do
   nothing in the current setup (`inner` on a bar spectrum) are hidden.
@@ -97,12 +94,17 @@ text placement are the pixels the daemon will send.
   saving is all it takes to see the result on the panel -- when the
   panel is showing this theme.
 * **Apply to panel** switches the running daemon to the theme in the
-  editor, saving it first; its arrow has **Apply and start with it**.
-  A theme the daemon refuses leaves the panel as it was, and the reason
-  is shown. The status bar says what the panel is showing ("Panel:
-  neon"), or that the daemon is not running.
+  editor, saving it first, and makes it the theme akp02d starts with --
+  what is on the panel is what comes back after a restart. A theme the
+  daemon refuses leaves the panel as it was, and the reason is shown.
+  The status bar says what the panel is showing ("Panel: neon"), or
+  that the daemon is not running.
+* Every save writes `preview.png` beside `theme.toml`: the preview as
+  it stands, at the panel's size. The daemon never reads it.
+* The icons beside **Layers** duplicate (Ctrl+J) or delete (Delete) the
+  selected widget; a delete is undone with Ctrl+Z.
 * **Themes**, above the layers, lists every theme in the themes folder:
-  the one open is bold, the one on the panel has a green dot. One click
+  the one open is bold, the one on the panel has a cyan dot. One click
   opens a theme; **Apply to panel** on the toolbar puts the open one on
   the panel. The icons beside the heading duplicate or delete the open
   theme, and the right-click menu has **Rename** too. Duplicate copies
@@ -182,7 +184,15 @@ bars = 48
 peaks = true
 gradient = ["#fd44dd", "#11e3f5"]
 smoothing = 30                  # cava's noise_reduction, 0-100
+when_silent = "sweep"           # or "none"
 ```
+
+After five seconds with nothing from cava -- a pause, the end of a
+playlist, a muted tab -- a spectrum sweeps a soft wave across its bars
+(round the ring, on a radial one) until sound returns, which brings the
+bars straight back. `when_silent = "none"` leaves them flat instead. The
+editor's made-up music goes quiet for ten seconds every forty, so the
+sweep shows in the preview too.
 
 `temperature` reads the kernel's own sensors (hwmon, then thermal
 zones), so it needs nothing installed. With no `sensor` it picks the
@@ -433,7 +443,9 @@ Players hand covers over in three ways, all handled: a local file
 (`file://`), a download (`https://`, e.g. Spotify -- fetched in the
 background, so the panel never waits on the network), or the picture
 itself inline as base64 (`data:image/...;base64,`). Covers are cached,
-and while the next one downloads the current one stays up.
+and while the next one downloads the current one stays up. The cover
+shows only while something is playing: paused or stopped, the image
+shows `path` (or nothing) until playback resumes.
 
 `contain` shows all of the picture, as large as fits; `cover` fills the
 box and crops; `stretch` fills it exactly; `none` keeps the picture's

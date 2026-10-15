@@ -213,8 +213,15 @@ class Audio:
         self._level = [0.0] * bars
         self._start = time.monotonic()
 
+    # The made-up music pauses for SILENT_FOR seconds every CYCLE, so a
+    # spectrum's silence sweep can be seen in the preview too.
+    CYCLE, SILENT_FOR = 40.0, 10.0
+
     def read(self) -> tuple[int, ...] | None:
         now = time.monotonic() - self._start
+        if now % self.CYCLE >= self.CYCLE - self.SILENT_FOR:
+            self._level = [0.0] * self._bars
+            return (0,) * self._bars
         half = self._bars // 2 if self._stereo else self._bars
         target = self._music(now, half)
         if self._stereo:

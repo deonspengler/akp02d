@@ -203,9 +203,10 @@ def test_artwork_download_never_blocks(tmp_path: Path) -> None:
 class FakeSource:
     def __init__(self) -> None:
         self.art = ""
+        self.status = "Playing"
 
     def read(self, now):
-        return 0.0, {"art": self.art}
+        return 0.0, {"art": self.art, "status": self.status}
 
     def close(self) -> None:
         pass
@@ -262,3 +263,17 @@ def test_playerctl_line_carries_art() -> None:
                            "https://i.scdn.co/image/abc"))
     assert media.parse(line, 0.0).art == "https://i.scdn.co/image/abc"
     assert media.parse(media.SEP.join(("Playing", "x", "0", "0", "A", "T", "Al")), 0.0).art == ""
+
+
+
+def test_paused_counts_as_nothing_playing(pictures: Path, monkeypatch) -> None:
+    Image.new("RGB", (20, 20), BLUE).save(pictures / "no-cover.png")
+    w, source = art_widget(pictures, {"path": "no-cover.png", "fit": "stretch"},
+                           monkeypatch)
+    source.art = data_url(RED)
+    w.render(0.0)
+    assert w.surface.getpixel((30, 30)) == RED
+    source.status = "Paused"
+    assert w.render(1.0) and w.surface.getpixel((30, 30)) == BLUE
+    source.status = "Playing"
+    assert w.render(2.0) and w.surface.getpixel((30, 30)) == RED

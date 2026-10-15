@@ -68,6 +68,33 @@ POSITION_MAP = {
 }
 
 
+# Silence: every bar below this (of cava.MAX) counts as nothing heard.
+SILENCE = cava.MAX // 200
+# How long a silence lasts before the sweep starts, and how the sweep moves.
+SILENT_SEC = 5.0
+SWEEP_PERIOD_SEC = 2.8
+SWEEP_FADE_SEC = 1.0
+
+
+def _sweep(bars: int, now: float, since: float) -> tuple[int, ...]:
+    """A soft wave travelling across the bars, looping, as cava levels.
+
+    Left to right across the bars as drawn -- round the ring on a radial
+    one. It fades in over its first second, so a silence does not snap
+    into motion.
+    """
+    centre = (now / SWEEP_PERIOD_SEC) % 1.0
+    width = max(0.06, 2.5 / max(bars, 1))
+    strength = min(1.0, since / SWEEP_FADE_SEC) * 0.6
+    out = []
+    for index in range(bars):
+        at = (index + 0.5) / bars
+        distance = min(abs(at - centre), 1.0 - abs(at - centre))   # wraps round
+        level = strength * math.exp(-(distance / width) ** 2) + 0.03 * strength
+        out.append(int(min(1.0, level) * cava.MAX))
+    return tuple(out)
+
+
 @register("spectrum")
 class SpectrumWidget(Widget):
     """An audio visualiser, driven by cava."""
@@ -121,11 +148,15 @@ class SpectrumWidget(Widget):
         integer("origin_width", 1, 1, 32, group="Colour",
                 when=lambda v: v.origin is not None),
         colors("gradient", ("#00ff00", "#ffff00", "#ff0000"), group="Colour"),
+        choice("when_silent", ("sweep", "none"), "sweep", group="Audio",
+               doc="After a few seconds of silence: sweep loops a soft wave "
+                   "across the bars until sound returns; none leaves them flat"),
         sections("cava", group="Advanced",
                  doc="Extra cava settings, passed through verbatim"),
     )
 
     __slots__ = (
+        "_heard", "_sweep",
         "_bars", "_box", "_cap", "_clearance", "_fills", "_gap", "_gradient",
         "_gravity", "_held", "_hold", "_inner", "_last", "_lut", "_mask",
         "_mask_box", "_mask_draw", "_paint", "_peaks", "_segment_gap",
@@ -211,6 +242,9 @@ class SpectrumWidget(Widget):
         self._held = [0.0] * self._bars      # monotonic time each cap may fall
         self._velocity = [0.0] * self._bars
         self._time: float | None = None
+        # When sound was last heard, for the sweep that fills a silence.
+        self._sweep = o.when_silent == "sweep"
+        self._heard: float | None = None
 
         self._stream: cava.Stream | None = None
         text = cava.config(
@@ -263,7 +297,17 @@ class SpectrumWidget(Widget):
 
     def render(self, now: float) -> bool:
         frame = self._stream.read() if self._stream is not None else None
-        if frame is None:
+        if self._heard is None:
+            self._heard = now
+        if frame is not None and max(frame, default=0) > SILENCE:
+            self._heard = now
+        silent_for = now - self._heard
+        if self._sweep and silent_for >= SILENT_SEC:
+            # Nothing heard for a while: a sweep, through the same drawing
+            # as sound -- peaks and colours work on it unchanged. The first
+            # real sound takes straight back over.
+            frame = _sweep(self._bars, now, silent_for - SILENT_SEC)
+        elif frame is None:
             return False  # no new audio: nothing can have changed
         span = self._span
         values = [value / cava.MAX for value in frame]

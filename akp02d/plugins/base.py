@@ -78,6 +78,9 @@ class Widget:
     schema = Schema()
     # One line on what the plugin draws, for editors.
     summary = ""
+    # Whether it draws text from its source; one that does not (an image)
+    # is not offered a source's text-only options (see Option.text_only).
+    shows_text = True
 
     __slots__ = ("backdrop", "due", "fps", "id", "jpeg", "period", "rect", "surface")
 

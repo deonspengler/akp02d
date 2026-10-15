@@ -123,6 +123,10 @@ class Option:
     # Suggestions, not limits: a theme may name what only the panel's
     # own machine has.
     suggest: Callable[[Values], list[tuple[str, str]]] | None = None
+    # A source's option that only changes text it gives (now_playing's
+    # `idle` title): a widget that shows no text has no use for it, and a
+    # tool need not offer it there.
+    text_only: bool = False
 
     @property
     def required(self) -> bool:

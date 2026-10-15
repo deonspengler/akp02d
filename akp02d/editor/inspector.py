@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QToolButton,
@@ -61,7 +61,8 @@ def options_for(plugin: str, entry: dict[str, Any]) -> list[Option]:
             source_cls = sources.lookup(entry.get(option.key, "")) if isinstance(
                 entry.get(option.key), str) else None
             if source_cls is not None:
-                out += list(source_cls.schema)
+                shows_text = getattr(cls, "shows_text", True)
+                out += [o for o in source_cls.schema if shows_text or not o.text_only]
     return out + list(BASE)
 
 
@@ -124,6 +125,19 @@ def _computed_default(option: Option, values: Values, spec: Any) -> Any:
         return option.default_for(values, spec)
     except Exception:  # noqa: BLE001 -- a half-edited theme
         return None
+
+
+def _browse_button(choose) -> QToolButton:
+    """The folder icon beside a picture's file name: choose a picture."""
+    button = QToolButton()
+    button.setObjectName("browse")
+    button.setIcon(style.action_icon("folder"))
+    button.setIconSize(QSize(18, 18))
+    button.setToolTip("Choose a picture…")
+    button.setAccessibleName("Choose a picture")
+    button.setStyleSheet("padding: 3px;")
+    button.clicked.connect(lambda _c=False: choose())
+    return button
 
 
 class Inspector(QWidget):
@@ -245,9 +259,7 @@ class Inspector(QWidget):
                       "Readings in the preview are simulated -- CPU, memory, disk and "
                       "network move, and spectrums play made-up music -- so every "
                       "widget looks alive on any machine. The clock is real, and so "
-                      "is a temperature sensor this machine has.\n\n"
-                      "Hover over the panel to see the pixel position and colour in "
-                      "the status bar.")
+                      "is a temperature sensor this machine has.")
         hint.setWordWrap(True)
         hint.setObjectName("hint")
         column.addWidget(hint)
@@ -284,6 +296,14 @@ class Inspector(QWidget):
                   lambda: self.theme_edited.emit("background", None),
                   "A colour under everything, or several for a gradient; the "
                   "wallpaper is drawn over it")
+        # A wallpaper fills the whole panel: while there is one, the colour
+        # (and its gradient) never shows, so it is set aside.
+        covered = bool(theme.get("wallpaper"))
+        covered_tip = ("The wallpaper covers the whole panel, so the background "
+                       "colour does not show. Clear the wallpaper to use it.")
+        if covered:
+            colour.setEnabled(False)
+            colour.setToolTip(covered_tip)
         if isinstance(theme.get("background"), list) and len(theme["background"]) > 1:
             shape = controls.ChoiceField(SHAPES)
             shape.setObjectName("theme.background_shape")
@@ -293,6 +313,9 @@ class Inspector(QWidget):
                       lambda: self.theme_edited.emit("background_shape", None),
                       "linear runs across the panel at an angle; radial from the "
                       "middle out")
+            if covered:
+                shape.setEnabled(False)
+                shape.setToolTip(covered_tip)
             if theme.get("background_shape", "linear") != "radial":
                 angle = controls.AngleField()
                 angle.setObjectName("theme.background_angle")
@@ -302,6 +325,9 @@ class Inspector(QWidget):
                           lambda: self.theme_edited.emit("background_angle", None),
                           "Which way the gradient runs, in degrees: 0 bottom to top, "
                           "90 left to right, 180 top to bottom, 270 right to left")
+                if covered:
+                    angle.setEnabled(False)
+                    angle.setToolTip(covered_tip)
         wall = QWidget()
         wall_row = QHBoxLayout(wall)
         wall_row.setContentsMargins(0, 0, 0, 0)
@@ -309,8 +335,7 @@ class Inspector(QWidget):
         wall_edit.setObjectName("theme.wallpaper")
         wall_edit.set_value(theme.get("wallpaper"), "none")
         wall_edit.changed.connect(lambda v: self.theme_edited.emit("wallpaper", v))
-        browse = QPushButton("Choose…")
-        browse.clicked.connect(lambda: self._choose_wallpaper(document))
+        browse = _browse_button(lambda: self._choose_wallpaper(document))
         wall_row.addWidget(wall_edit, 1)
         wall_row.addWidget(browse)
         self._row(form, "wallpaper", wall, "wallpaper" in theme,
@@ -352,7 +377,7 @@ class Inspector(QWidget):
         grid = QWidget()
         grid_row = QHBoxLayout(grid)
         grid_row.setContentsMargins(0, 0, 0, 0)
-        grid_row.setSpacing(6)
+        grid_row.setSpacing(14)
         width, height = screen
         current = Rect(*(int(entry.get(k, 0) or 0) if isinstance(entry.get(k), int) else 0
                          for k in ("x", "y", "width", "height")))
@@ -494,19 +519,18 @@ class Inspector(QWidget):
             names = [name for name in sources.available()
                      if (cls := sources.lookup(name)) is not None
                      and (not option.accepts or sources.fits(cls, option.accepts))]
-            if sources.PICTURE in option.accepts:
-                # An image's source: say what picture each one shows.
-                field = controls.SourceField(
-                    names, option.required, none_text="none: the file at path",
-                    labels={n: f"{n} — {sources.lookup(n).picture_summary}"
-                            for n in names if sources.lookup(n).picture_summary})
-            else:
-                field = controls.SourceField(names, option.required)
+            pictures = sources.PICTURE in option.accepts
+            field = controls.SourceField(
+                names, option.required,
+                none_text="none: the file at path" if pictures else "none (fixed text)")
             field.set_value(value)
             for index in range(field.count()):
                 cls = sources.lookup(field.itemData(index) or "")
-                if cls is not None and cls.summary:
-                    field.setItemData(index, cls.summary, Qt.ItemDataRole.ToolTipRole)
+                # The name as the theme file has it; what it is, on hover --
+                # for an image, what picture it shows.
+                tip = (cls.picture_summary if pictures else cls.summary) if cls else ""
+                if tip:
+                    field.setItemData(index, tip, Qt.ItemDataRole.ToolTipRole)
             field.changed.connect(emit)
             control = field
         elif kind == FORMAT:
@@ -561,8 +585,7 @@ class Inspector(QWidget):
             field.setObjectName(f"opt.{key}")
             field.set_value(value, label)
             field.changed.connect(emit)
-            browse = QPushButton("Choose…")
-            browse.clicked.connect(lambda _c=False: (
+            browse = _browse_button(lambda: (
                 name := pick_image(self, document, "Choose picture")) and emit(name))
             row.addWidget(field, 1)
             row.addWidget(browse)

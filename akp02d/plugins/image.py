@@ -20,7 +20,8 @@ of what is playing, whether the player hands it over as a file, a
 download, or inline base64 (see artwork.py). `path` is then the picture
 shown while there is no cover; without one, the background shows. A
 new cover that is still downloading leaves the old one up until it
-arrives, rather than flashing the fallback between tracks.
+arrives, rather than flashing the fallback between tracks. A paused
+track counts as nothing playing: the cover returns when it resumes.
 
 How the picture meets the box:
 
@@ -121,6 +122,7 @@ class ImageWidget(Widget):
 
     default_fps = 1.0
     summary = "A picture: a file in the theme's folder, or the cover of what is playing"
+    shows_text = False
     schema = Schema(
         source(accepts=(sources.PICTURE,), group="Image",
                doc="Where a changing picture comes from: now_playing for the cover "
@@ -257,6 +259,10 @@ class ImageWidget(Widget):
         """
         _, fields = self._source.read(now)
         url = fields.get("art") or ""
+        # Only while playing: a paused track counts as nothing playing,
+        # and gives way to the `path` picture (or nothing) until it resumes.
+        if fields.get("status", "Playing") != "Playing":
+            url = ""
         if url != self._url:
             picture = artwork.picture(url)
             if picture is artwork.PENDING:

@@ -259,7 +259,7 @@ def test_add_image_then_pick_where_pictures_come_from(app, tmp_path: Path, monke
         window._widget_edited(ref, "source", None)
         pump(app, 0.3)
         row = window.inspector.findChild(QtWidgets.QWidget, "opt.path.row")
-        row.findChild(QtWidgets.QPushButton).click()
+        row.findChild(QtWidgets.QToolButton, "browse").click()
         pump(app, 0.3)
         assert (theme / "logo.png").is_file()
         assert window.document.entry(ref)["path"] == "logo.png"
@@ -654,8 +654,116 @@ def test_image_source_says_what_it_shows(app, tmp_path: Path) -> None:
         pump(app, 0.2)
         field = window.inspector.findChild(QtWidgets.QComboBox, "opt.source")
         items = [field.itemText(i) for i in range(field.count())]
-        assert items == ["none: the file at path", "now_playing — the cover of what is playing"]
+        assert items == ["none: the file at path", "now_playing"]
         assert field.currentData() == "now_playing"
+        tip = field.itemData(1, QtCore.Qt.ItemDataRole.ToolTipRole)
+        assert tip == "the cover of what is playing"
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+
+def test_wallpaper_sets_the_background_colour_aside(app, tmp_path: Path) -> None:
+    from PIL import Image
+    Image.new("RGB", (462, 1920), (20, 20, 20)).save(tmp_path / "wall.png")
+    (tmp_path / "theme.toml").write_text(
+        '[theme]\norientation = "portrait"\nbackground = ["#000000", "#0000ff"]\n'
+        'wallpaper = "wall.png"\n\n[[widget.label]]\nx = 8\ny = 0\nwidth = 160\n'
+        'height = 48\nformat = "Hi"\n')
+    window = EditorWindow(ThemeDocument.open(tmp_path), config.Config())
+    try:
+        window.show()
+        window._set_selection("theme")
+        pump(app, 0.2)
+        find = lambda name: window.inspector.findChild(QtWidgets.QWidget, name)  # noqa: E731
+        for name in ("theme.background", "theme.background_shape", "theme.background_angle"):
+            assert not find(name).isEnabled(), name
+        assert "covers the whole panel" in find("theme.background").toolTip()
+        browse = window.inspector.findChildren(QtWidgets.QToolButton, "browse")
+        assert browse and browse[0].text() == "" and not browse[0].icon().isNull()
+        window.edit_theme("wallpaper", None, "x")
+        pump(app, 0.3)
+        assert find("theme.background").isEnabled()
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_image_is_not_offered_text_options(app, tmp_path: Path) -> None:
+    """now_playing's `idle` is the title shown when nothing plays: an
+    image shows no text, so it is not offered there -- `player` is."""
+    from akp02d.editor.inspector import options_for
+    image = [o.key for o in options_for("image", {"source": "now_playing"})]
+    label = [o.key for o in options_for("label", {"source": "now_playing"})]
+    assert "player" in image and "idle" not in image
+    assert "player" in label and "idle" in label
+
+
+def test_apply_is_one_button_and_sets_the_start_theme(app, themes) -> None:
+    from akp02d import config as config_module, paths
+    window = editor(paths.themes_dir() / "neon", themes.config)
+    try:
+        bar = window.toolbar
+        assert isinstance(window.apply_button, QtWidgets.QPushButton)
+        assert window.apply_button.menu() is None
+        texts = [w.text() for w in bar.findChildren(QtWidgets.QPushButton)]
+        assert "Export PNG" not in texts
+        window.apply_button.click()
+        pump(app, 0.2)
+        assert themes.theme.name == "neon"
+        assert config_module.load().theme == "neon"          # comes back after a restart
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_save_writes_a_preview(app, themes, monkeypatch) -> None:
+    from PIL import Image
+    from akp02d import paths
+    answers = Answers(monkeypatch)
+    window = editor(paths.themes_dir() / "neon", themes.config)
+    try:
+        answers.names = ["fresh"]
+        window.new_theme()
+        preview = paths.themes_dir() / "fresh" / "preview.png"
+        assert preview.is_file()
+        with Image.open(preview) as image:
+            assert image.size == (462, 1920)
+        before = preview.read_bytes()
+        window.add_widget("label")
+        pump(app, 0.3)
+        assert window.save()
+        assert preview.read_bytes() != before                # the new label is in it
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_layer_icons_duplicate_and_delete(app, tmp_path: Path) -> None:
+    (tmp_path / "theme.toml").write_text(
+        '[theme]\norientation = "portrait"\n\n[[widget.label]]\n'
+        'x = 8\ny = 0\nwidth = 160\nheight = 48\nformat = "Hi"\n')
+    window = EditorWindow(ThemeDocument.open(tmp_path), config.Config())
+    try:
+        window.show()
+        buttons = window.layer_buttons
+        window._set_selection("theme")
+        pump(app, 0.1)
+        assert not buttons["duplicate"].isEnabled() and not buttons["delete"].isEnabled()
+        window._set_selection(Ref("label", 1))
+        pump(app, 0.1)
+        assert buttons["duplicate"].isEnabled() and buttons["delete"].isEnabled()
+        buttons["duplicate"].click()
+        pump(app, 0.2)
+        assert len(window.document.refs()) == 2
+        buttons["delete"].click()
+        pump(app, 0.2)
+        assert len(window.document.refs()) == 1
+        assert not buttons["delete"].isEnabled()            # nothing selected now
+        window.undo.undo()
+        pump(app, 0.2)
+        assert len(window.document.refs()) == 2             # Delete is undoable
     finally:
         window.undo.setClean()
         window.close()

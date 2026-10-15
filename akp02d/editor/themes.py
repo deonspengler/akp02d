@@ -67,16 +67,8 @@ class ThemeList(QWidget):
         self.buttons: dict[str, QToolButton] = {}
         for key, tip in (("duplicate", "Duplicate this theme under a new name"),
                          ("delete", "Move this theme to the trash")):
-            button = QToolButton(self)
+            button = heading_button(key, tip, self)
             button.setObjectName(f"theme.{key}")
-            button.setIcon(style.action_icon(key))
-            button.setIconSize(QSize(16, 16))
-            button.setToolTip(tip)
-            button.setAutoRaise(True)
-            button.setStyleSheet("QToolButton { padding: 2px; border: none; "
-                                 "background: transparent; }"
-                                 f"QToolButton:hover {{ background: {style.RAISED}; }}")
-            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             button.clicked.connect(lambda _c=False, k=key: self._emit(k))
             top.addWidget(button)
             self.buttons[key] = button
@@ -160,7 +152,7 @@ class ThemeList(QWidget):
             font.setBold(item.text() == self._open)
             item.setFont(font)
             on_panel = item.text() == self._panel
-            item.setIcon(_dot(style.OK if on_panel else None))
+            item.setIcon(_dot(style.ON_PANEL if on_panel else None))
             item.setForeground(QBrush(QColor(style.TEXT if item.text() == self._open
                                               else style.MUTED)))
             tip = str(paths.themes_dir() / item.text())
@@ -208,6 +200,19 @@ class ThemeList(QWidget):
                   delete: self.delete}.get(chosen)
         if signal is not None:
             signal.emit(name)
+
+
+def heading_button(icon: str, tip: str, parent: QWidget | None = None) -> QToolButton:
+    """A small icon button for beside a list's heading (themes, layers)."""
+    button = QToolButton(parent)
+    button.setIcon(style.action_icon(icon))
+    button.setIconSize(QSize(16, 16))
+    button.setToolTip(tip)
+    button.setAutoRaise(True)
+    button.setStyleSheet("QToolButton { padding: 2px; border: none; background: transparent; }"
+                         f"QToolButton:hover {{ background: {style.RAISED}; }}")
+    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    return button
 
 
 def ask_name(parent: QWidget, title: str, label: str, suggested: str = "") -> str | None:

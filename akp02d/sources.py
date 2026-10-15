@@ -455,7 +455,7 @@ class NowPlayingSource(Source):
                doc="Which player to follow, e.g. spotify, mpv, firefox; empty "
                    "follows whichever is active",
                suggest=lambda values: [(name, name) for name in _media().players()]),
-        string("idle", "nothing playing", group="Data",
+        string("idle", "nothing playing", group="Data", text_only=True,
                doc="The title shown when nothing is playing"),
     )
     fields = ("title", "artist", "album", "status", "player", "position", "length",

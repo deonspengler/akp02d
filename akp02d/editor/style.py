@@ -23,6 +23,8 @@ MUTED = "#a3a9b6"
 FAINT = "#8b92a0"
 ACCENT = "#3daee9"
 OK = "#4cc38a"
+# The theme on the panel: a light cyan, apart from OK's "valid" green.
+ON_PANEL = "#6ee7f7"
 WARN = "#e6c46b"
 BAD = "#ff6b6b"
 CANVAS = "#121418"
@@ -34,12 +36,12 @@ QToolBar {{ background: {CHROME}; border: none; border-bottom: 1px solid #2b303a
 QStatusBar {{ background: {CHROME}; color: {MUTED}; border-top: 1px solid #2b303a; }}
 QStatusBar QLabel {{ color: {MUTED}; padding: 0 8px; }}
 QSplitter::handle {{ background: #2b303a; }}
-QLabel#heading {{ color: {FAINT}; font-weight: 600; font-size: 11px; }}
+QLabel#heading {{ color: {FAINT}; font-weight: 600; font-size: 12px; }}
 QLabel#title {{ font-size: 15px; font-weight: 600; }}
-QLabel#mono, QLabel#path {{ font-family: monospace; color: {FAINT}; font-size: 11px; }}
-QLabel#hint {{ color: {FAINT}; font-size: 11px; }}
-QLabel#ok {{ color: #7fd6a8; font-size: 11px; }}
-QLabel#bad {{ color: {BAD}; font-size: 11px; }}
+QLabel#mono, QLabel#path {{ font-family: monospace; color: {FAINT}; font-size: 12px; }}
+QLabel#hint {{ color: {FAINT}; font-size: 12px; }}
+QLabel#ok {{ color: #7fd6a8; font-size: 12px; }}
+QLabel#bad {{ color: {BAD}; font-size: 12px; }}
 QFrame#side, QWidget#side {{ background: {PANEL}; }}
 QFrame#problem {{ background: #2a1d20; border: 1px solid #5a2e33; border-radius: 6px; }}
 QFrame#warning {{ background: #2a2619; border: 1px solid #5a4e2e; border-radius: 6px; }}
@@ -73,7 +75,7 @@ QToolButton#segLast {{ border-top-left-radius: 0; border-bottom-left-radius: 0;
                        border-left-width: 0; padding: 4px 12px; }}
 QGroupBox {{ border: none; border-top: 1px solid #2b303a; margin-top: 14px; padding-top: 10px; }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 0; top: 2px; color: {FAINT};
-                    font-weight: 600; font-size: 11px; }}
+                    font-weight: 600; font-size: 12px; }}
 QScrollArea {{ border: none; background: {PANEL}; }}
 QScrollArea > QWidget > QWidget {{ background: {PANEL}; }}
 QCheckBox {{ color: {TEXT}; }}
@@ -207,6 +209,13 @@ def action_icon(name: str) -> QIcon:
         p.lineTo(12.5, 5); p.lineTo(9.5, 2); p.lineTo(9.5, 5); p.lineTo(12.5, 5)
         p.moveTo(8.25, 7.5); p.lineTo(8.25, 11.5); p.moveTo(6.25, 9.5); p.lineTo(10.25, 9.5)
 
+    def folder(p: QPainterPath) -> None:
+        # An open folder: for choosing a picture file.
+        p.moveTo(2, 12.5); p.lineTo(2, 3.5); p.lineTo(6, 3.5); p.lineTo(7.5, 5)
+        p.lineTo(13, 5); p.lineTo(13, 7)
+        p.moveTo(2, 12.5); p.lineTo(4, 7); p.lineTo(14.5, 7); p.lineTo(12.5, 12.5)
+        p.closeSubpath()
+
     def duplicate(p: QPainterPath) -> None:
         # Two sheets, the front one with a plus.
         p.addRoundedRect(QRectF(5.5, 5.5, 8, 8), 1.2, 1.2)
@@ -238,5 +247,5 @@ def action_icon(name: str) -> QIcon:
         p.cubicTo(1, 6.5, 1, 13, 6, 13); p.lineTo(9.5, 13)
 
     drawings = {"new": new, "save": save, "undo": undo, "redo": redo,
-                "duplicate": duplicate, "delete": delete}
+                "duplicate": duplicate, "delete": delete, "folder": folder}
     return _line_icon(drawings[name])

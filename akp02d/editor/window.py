@@ -40,7 +40,7 @@ from .controls import Segmented
 from .document import DocumentError, Ref, ThemeDocument
 from .engine import ERROR, Engine, Problem, snap
 from .inspector import Inspector
-from .themes import ThemeList, ask_name
+from .themes import ThemeList, ask_name, heading_button
 from . import style
 
 log = logging.getLogger(__name__)
@@ -57,6 +57,8 @@ NEW_OPTIONS: dict[str, dict[str, Any]] = {
 }
 
 PACKAGE_DIR = Path(akp02d.__file__).resolve().parent
+# Written beside theme.toml on every save; see _write_preview.
+PREVIEW = "preview.png"
 
 
 class _Edit(QUndoCommand):
@@ -176,23 +178,15 @@ class EditorWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         bar.addWidget(spacer)
-        # Apply: switch the running daemon to this theme. The arrow offers
-        # making it the theme akp02d starts with, too.
-        apply = QToolButton()
-        apply.setText("Apply to panel")
-        apply.setToolTip("Show this theme on the panel now (saves it first)")
-        apply.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        # Apply: the running daemon shows this theme, and starts with it
+        # from now on -- what is on the panel is what comes back.
+        apply = QPushButton("Apply to panel")
+        apply.setToolTip("Show this theme on the panel, and start with it from now on "
+                         "(saves it first)")
         apply.clicked.connect(lambda _c=False: self.apply_to_panel())
-        menu = QMenu(apply)
-        menu.addAction("Apply and start with it",
-                       lambda: self.apply_to_panel(save=True))
-        apply.setMenu(menu)
         apply.setObjectName("apply")
         bar.addWidget(apply)
         self.apply_button = apply
-        export = QPushButton("Export PNG")
-        export.clicked.connect(self.export_png)
-        bar.addWidget(export)
 
     def _build_body(self) -> None:
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -222,10 +216,28 @@ class EditorWindow(QMainWindow):
         layers_column = QVBoxLayout(layers_box)
         layers_column.setContentsMargins(0, 12, 0, 0)
         layers_column.setSpacing(0)
+        # The heading, with duplicate and delete for the selected widget.
+        layers_top = QHBoxLayout()
+        layers_top.setContentsMargins(14, 0, 8, 4)
+        layers_top.setSpacing(2)
         heading = QLabel("LAYERS")
         heading.setObjectName("heading")
-        heading.setContentsMargins(14, 0, 14, 6)
-        layers_column.addWidget(heading)
+        layers_top.addWidget(heading)
+        layers_top.addStretch(1)
+        self.layer_buttons: dict[str, QToolButton] = {}
+        for key, tip, act in (
+            ("duplicate", "Duplicate this widget (Ctrl+J)",
+             lambda: self.duplicate_widget(self._id_of(self.selection))),
+            ("delete", "Delete this widget (Delete; Ctrl+Z brings it back)",
+             lambda: self.delete_widget(self._id_of(self.selection))),
+        ):
+            button = heading_button(key, tip)
+            button.setObjectName(f"layer.{key}")
+            button.clicked.connect(lambda _c=False, a=act: isinstance(self.selection, Ref) and a())
+            button.setEnabled(False)
+            layers_top.addWidget(button)
+            self.layer_buttons[key] = button
+        layers_column.addLayout(layers_top)
         self.layers = QTreeWidget()
         self.layers.setHeaderHidden(True)
         self.layers.setColumnCount(2)
@@ -303,7 +315,6 @@ class EditorWindow(QMainWindow):
         self.canvas.duplicate_requested.connect(self.duplicate_widget)
         self.canvas.status.connect(lambda text: self.statusBar().showMessage(text, 4000))
         self.canvas.view_changed.connect(self._zoom_changed)
-        self.canvas.hovered.connect(self._hovered)
 
         # Right: settings.
         self.inspector = Inspector()
@@ -325,11 +336,6 @@ class EditorWindow(QMainWindow):
         self.status_mount = QLabel("Mount: inverted" if self.config.device.inverted
                                    else "Mount: upright")
         self.status_dirty = QLabel()
-        # Left: the pixel under the mouse. Hidden while a message (a drag
-        # readout, "Saved") is showing; the right-hand facts never are.
-        self.status_hover = QLabel()
-        self.status_hover.setTextFormat(Qt.TextFormat.RichText)
-        bar.addWidget(self.status_hover)
         # What the running daemon is showing, asked every few seconds.
         self.status_panel = QLabel()
         self.status_panel.setToolTip("The akp02d daemon, through its control socket")
@@ -447,6 +453,9 @@ class EditorWindow(QMainWindow):
             theme_item.setSelected(True)
         self.layers.resizeColumnToContents(0)
         self.layers.blockSignals(False)
+        widget_selected = isinstance(self.selection, Ref)
+        for button in self.layer_buttons.values():
+            button.setEnabled(widget_selected)
 
     def _theme_detail(self) -> str:
         theme = self.document.theme
@@ -646,24 +655,6 @@ class EditorWindow(QMainWindow):
         self.zoom_label.setText(f"{round(zoom * 100)}%")
         self.zoom_label.setVisible(mode == "")
 
-    def _hovered(self, point: tuple[int, int] | None) -> None:
-        """Where the mouse is on the panel, and the colour there -- for
-        lining things up, and for taking a colour off the wallpaper."""
-        screen = self.engine.screen
-        if point is None or screen is None:
-            self.status_hover.clear()
-            return
-        x, y = point
-        try:
-            r, g, b = screen.getpixel((x, y))[:3]
-        except IndexError:
-            self.status_hover.clear()
-            return
-        colour = f"#{r:02x}{g:02x}{b:02x}"
-        self.status_hover.setText(
-            f"x {x}, y {y} &nbsp;&nbsp;<span style='background-color:{colour}'>"
-            f"&nbsp;&nbsp;&nbsp;&nbsp;</span>&nbsp;{colour}")
-
     def _boxes_toggled(self, on: bool) -> None:
         self.canvas.show_boxes = on
         self.canvas.viewport().update()
@@ -698,6 +689,7 @@ class EditorWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot create", str(exc))
             return
         self._replace(document)
+        self._write_preview()
         self.theme_list.reload()
 
     def _replace(self, document: ThemeDocument) -> None:
@@ -751,8 +743,23 @@ class EditorWindow(QMainWindow):
                 return False
         self.undo.setClean()
         self._update_title()
+        self._write_preview()
         self.statusBar().showMessage(f"Saved {doc.path}", 4000)
         return True
+
+    def _write_preview(self) -> None:
+        """preview.png beside theme.toml: the preview as it stands, at the
+        panel's size, with its simulated readings. The daemon never reads
+        it. A failure to write it is said, but does not undo the save."""
+        folder = self.document.directory
+        if folder is None or self.engine.screen is None:
+            return
+        # Anything rebuilt since the last frame draws first.
+        self.engine.tick()
+        try:
+            self.engine.frame().save(folder / PREVIEW)
+        except OSError as exc:
+            self.statusBar().showMessage(f"Saved, but no preview: {exc}", 6000)
 
     # -- the themes list --
 
@@ -868,12 +875,12 @@ class EditorWindow(QMainWindow):
             return
         self.panel_theme = reply.get("theme")
         self.status_panel.setText(f"Panel: {self.panel_theme or '?'}")
-        self.status_panel.setStyleSheet(f"color: {style.OK};")
+        self.status_panel.setStyleSheet(f"color: {style.ON_PANEL};")
         # By name only for a theme from the themes folder.
         in_folder = _inside(Path(reply.get("path", "")), _themes_folder())
         self.theme_list.set_panel(self.panel_theme if in_folder else None)
 
-    def apply_to_panel(self, save: bool = False) -> bool:
+    def apply_to_panel(self, save: bool = True) -> bool:
         """Show this theme on the panel: saved first, then the daemon is
         asked to switch. A theme with a mistake is refused by the daemon,
         which keeps showing what it was; the reason comes back here."""
@@ -910,17 +917,6 @@ class EditorWindow(QMainWindow):
         self.statusBar().showMessage(f"Showing {reply.get('theme')} on the panel{note}", 5000)
         self.refresh_panel_status()
         return True
-
-    def export_png(self) -> None:
-        if self.engine.screen is None:
-            return
-        name = (self.document.directory.name if self.document.directory else "theme")
-        start = str((self.document.directory or Path.home()) / f"{name}-preview.png")
-        path, _ = QFileDialog.getSaveFileName(self, "Export PNG", start, "PNG image (*.png)")
-        if not path:
-            return
-        self.engine.frame().save(path)
-        self.statusBar().showMessage(f"Exported {path}", 4000)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         if not self._confirm_discard():
