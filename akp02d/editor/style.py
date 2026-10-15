@@ -28,6 +28,21 @@ ON_PANEL = "#6ee7f7"
 WARN = "#e6c46b"
 BAD = "#ff6b6b"
 CANVAS = "#121418"
+# The two lists on the left (themes, layers): a size of their own, not
+# the desktop's default, which can be small enough to squint at.
+LIST_PX = 14
+LIST_DETAIL_PX = 13
+
+
+def list_font(px: int = LIST_PX, mono: bool = False):
+    from PySide6.QtGui import QFont
+
+    font = QFont()
+    if mono:
+        font.setFamily("monospace")
+        font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setPixelSize(px)
+    return font
 
 QSS = f"""
 QMainWindow, QDialog {{ background: {GROUND}; }}

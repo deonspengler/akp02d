@@ -331,11 +331,24 @@ class App:
                 "theme, brightness or reload"}
 
     def _wait(self, seconds: float) -> None:
-        """The pause between frames: on the socket if there is one."""
-        if self.control is not None:
-            self.control.serve(seconds)
-        elif seconds > 0:
-            time.sleep(seconds)
+        """The pause between frames: on the socket if there is one.
+
+        A request wakes it early, but the frame still waits out its
+        time. Each early wake used to count as a frame, running the
+        schedule ahead of the clock, and the loop then slept the
+        difference off: a stall of several frames in anything moving,
+        each time the editor asked how the daemon was. Only a switched
+        theme or a stop ends the wait sooner.
+        """
+        if self.control is None:
+            if seconds > 0:
+                time.sleep(seconds)
+            return
+        until = time.monotonic() + seconds
+        while True:
+            self.control.serve(max(0.0, until - time.monotonic()))
+            if self._swapped or self._stop or time.monotonic() >= until:
+                return
 
     # -- loop --
 

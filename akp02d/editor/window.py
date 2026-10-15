@@ -243,7 +243,7 @@ class EditorWindow(QMainWindow):
         self.layers.setColumnCount(2)
         self.layers.setRootIsDecorated(False)
         self.layers.setIndentation(6)
-        self.layers.setIconSize(QSize(16, 16))
+        self.layers.setIconSize(QSize(18, 18))
         self.layers.setStyleSheet(
             f"QTreeWidget {{ background: {style.PANEL}; border: none; outline: none; }}"
             f"QTreeWidget::item {{ height: 30px; }}"
@@ -273,7 +273,7 @@ class EditorWindow(QMainWindow):
             grid.addWidget(button, index // 2, index % 2)
         add_column.addLayout(grid)
         column.addWidget(add)
-        left.setMinimumWidth(230)
+        left.setMinimumWidth(250)
         splitter.addWidget(left)
 
         # Middle: the canvas.
@@ -328,7 +328,7 @@ class EditorWindow(QMainWindow):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
-        splitter.setSizes([250, 820, 360])
+        splitter.setSizes([280, 790, 360])
 
     def _build_status(self) -> None:
         bar = self.statusBar()
@@ -429,6 +429,8 @@ class EditorWindow(QMainWindow):
         self.layers.clear()
         theme_item = QTreeWidgetItem(["Theme settings", self._theme_detail()])
         theme_item.setIcon(0, style.plugin_icon("theme"))
+        theme_item.setFont(0, style.list_font())
+        theme_item.setFont(1, style.list_font(style.LIST_DETAIL_PX))
         theme_item.setData(0, Qt.ItemDataRole.UserRole, THEME)
         self.layers.addTopLevelItem(theme_item)
         bad = {p.widget for p in self.problems if p.widget and p.level == ERROR}
@@ -439,9 +441,8 @@ class EditorWindow(QMainWindow):
             item.setIcon(0, style.plugin_icon(ref.plugin))
             item.setData(0, Qt.ItemDataRole.UserRole, ref)
             item.setForeground(1, QColor(style.FAINT))
-            font = item.font(0)
-            font.setFamily("monospace")
-            item.setFont(0, font)
+            item.setFont(0, style.list_font(mono=True))
+            item.setFont(1, style.list_font(style.LIST_DETAIL_PX))
             if widget_id in bad:
                 item.setForeground(0, QColor(style.BAD))
             elif widget_id in warned:

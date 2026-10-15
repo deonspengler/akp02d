@@ -1,7 +1,7 @@
 """The themes list: every theme in the themes folder, above the layers.
 
 It shows and asks; the window does. A row is a theme folder; the one
-open in the editor is bold, the one on the panel has a green dot. One
+open in the editor is bold, the one on the panel has a cyan dot. One
 click opens a theme. Duplicate and delete are icons beside the heading,
 for the open theme; rename is on the right-click menu with them. Putting
 a theme on the panel is the toolbar's Apply to panel.
@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QPoint, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
     QToolButton, QVBoxLayout, QWidget,
@@ -140,7 +140,7 @@ class ThemeList(QWidget):
         self._enable()
 
     def set_panel(self, name: str | None) -> None:
-        """The theme on the panel (None: no daemon): a green dot."""
+        """The theme on the panel (None: no daemon): a cyan dot."""
         if name != self._panel:
             self._panel = name
             self._mark()
@@ -148,7 +148,7 @@ class ThemeList(QWidget):
     def _mark(self) -> None:
         for row in range(self.list.count()):
             item = self.list.item(row)
-            font = QFont(item.font())
+            font = style.list_font()
             font.setBold(item.text() == self._open)
             item.setFont(font)
             on_panel = item.text() == self._panel

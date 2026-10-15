@@ -252,3 +252,32 @@ def test_trash_follows_the_freedesktop_layout(home, tmp_path, monkeypatch) -> No
     note = (paths.trash_dir() / "info" / "gone.trashinfo").read_text()
     assert note.startswith("[Trash Info]\nPath=/") and "/themes/gone" in note
     assert "DeletionDate=" in note
+
+
+def test_requests_do_not_cost_a_frame(daemon, monkeypatch) -> None:
+    """A request wakes the loop early; the frame must still wait out its
+    time. Counted as a frame of its own, each early wake ran the loop's
+    schedule ahead of the clock, and it then slept the difference off --
+    a stall of several frames in anything moving, every time the editor
+    asked the daemon how it was."""
+    widget = daemon.widgets[0]
+    period = 1.0 / daemon.config.fps
+    widget.period = period
+    times: list[float] = []
+    real = type(widget).render
+
+    def render(self, now: float) -> bool:
+        times.append(now)
+        return real(self, now)
+
+    monkeypatch.setattr(type(widget), "render", render)
+    time.sleep(1.2)                                  # past its old one-second due
+    times.clear()
+    # The editor's way: a status request now and then, each one a
+    # connect, a line and a close -- three early wakes of the loop.
+    for _ in range(6):
+        control.request({"cmd": "status"})
+        time.sleep(0.15)
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    assert len(times) >= 20 and max(gaps) < 1.5 * period, \
+        f"{len(times)} renders, longest gap {max(gaps) * 1000:.0f} ms"
