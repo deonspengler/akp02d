@@ -238,3 +238,17 @@ def test_restore_from_the_command_line(home) -> None:
     assert main(["--restore-theme", "default"]) == 0
     assert (paths.themes_dir() / "default" / "theme.toml").is_file()
     assert main(["--restore-theme", "nope"]) == 2
+
+
+def test_trash_follows_the_freedesktop_layout(home, tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    paths.setup()
+    for _ in range(2):
+        target = add_theme("gone")
+        moved = paths.trash(target)
+        assert not target.exists() and (moved / "theme.toml").is_file()
+    names = sorted(p.name for p in (paths.trash_dir() / "files").iterdir())
+    assert names == ["gone", "gone.2"]
+    note = (paths.trash_dir() / "info" / "gone.trashinfo").read_text()
+    assert note.startswith("[Trash Info]\nPath=/") and "/themes/gone" in note
+    assert "DeletionDate=" in note

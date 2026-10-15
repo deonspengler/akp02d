@@ -101,8 +101,21 @@ text placement are the pixels the daemon will send.
   A theme the daemon refuses leaves the panel as it was, and the reason
   is shown. The status bar says what the panel is showing ("Panel:
   neon"), or that the daemon is not running.
-* Open and Save start in the themes folder, and a new theme is saved
-  there by name.
+* **Themes**, above the layers, lists every theme in the themes folder:
+  the one open is bold, the one on the panel has a green dot. **Edit**
+  (or double-click), **Apply** and **Duplicate** are under the list;
+  **Rename** and **Delete** are on its right-click menu. Duplicate copies
+  the whole folder, wallpaper and images too. Apply on the open theme
+  with unsaved edits asks to save first. The theme on the panel cannot
+  be renamed or deleted, nor deleted while `akp02d.toml` starts with it;
+  renaming that one updates `akp02d.toml`. Delete moves the folder to the
+  desktop's trash, where a file manager can restore it. The list follows
+  the folder, so a theme added elsewhere shows up on its own.
+* Themes are named, not browsed for: **New** asks for a name and makes
+  the theme in the themes folder; **Save** writes the open theme where
+  it is, and only a theme with no home yet (or one that ships inside
+  akp02d) asks for a name. **Save As** (Ctrl+Shift+S) saves a copy under
+  a new name. **Open** is still there for a theme folder elsewhere.
 
 ## Themes
 

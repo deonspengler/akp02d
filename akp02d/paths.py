@@ -132,3 +132,57 @@ def restore_theme(name: str) -> tuple[Path, Path | None]:
     themes_dir().mkdir(parents=True, exist_ok=True)
     shutil.copytree(original, target)
     return target, kept
+
+
+def name_problem(name: str) -> str | None:
+    """What is wrong with `name` for a new theme, or None if it is fine.
+
+    A theme's name is its folder's name and what akp02d.toml says, so it
+    is one plain folder name, and not one already taken.
+    """
+    if not name:
+        return "A theme needs a name."
+    if "/" in name or "\\" in name or name.startswith(".") or name.startswith("~"):
+        return "A name is a plain folder name: no slashes, not starting with . or ~."
+    if len(name) > 64:
+        return "That name is too long; 64 characters at most."
+    if (themes_dir() / name).exists():
+        return f"There is already a theme called {name!r}."
+    return None
+
+
+def trash_dir() -> Path:
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base).expanduser() / "Trash"
+
+
+def trash(path: Path) -> Path:
+    """Move `path` to the desktop's trash, so it can be got back.
+
+    The freedesktop.org layout every Linux file manager reads: the item
+    under Trash/files, and a Trash/info/<name>.trashinfo saying where it
+    came from and when -- which is what "Restore" uses. A name already
+    in the trash gets a number. Returns where it went.
+    """
+    from datetime import datetime
+    from urllib.parse import quote
+
+    path = path.resolve()
+    files, info = trash_dir() / "files", trash_dir() / "info"
+    files.mkdir(parents=True, exist_ok=True)
+    info.mkdir(parents=True, exist_ok=True)
+    name, number = path.name, 2
+    while (files / name).exists() or (info / f"{name}.trashinfo").exists():
+        name = f"{path.name}.{number}"
+        number += 1
+    note = info / f"{name}.trashinfo"
+    note.write_text("[Trash Info]\n"
+                    f"Path={quote(str(path))}\n"
+                    f"DeletionDate={datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}\n",
+                    encoding="utf-8")
+    try:
+        shutil.move(str(path), str(files / name))
+    except OSError:
+        note.unlink(missing_ok=True)
+        raise
+    return files / name

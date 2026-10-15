@@ -399,3 +399,195 @@ def test_apply_without_a_daemon(app, monkeypatch, request) -> None:
     finally:
         window.undo.setClean()
         window.close()
+
+
+# -- the themes list, and naming instead of file dialogs --
+
+
+class Answers:
+    """Stand-ins for the editor's dialogs, answering from a script."""
+
+    def __init__(self, monkeypatch) -> None:
+        self.names: list[str] = []
+        self.asked: list[str] = []
+        self.questions: list[str] = []
+        self.reply = QtWidgets.QMessageBox.StandardButton.Yes
+        self.notes: list[str] = []
+        monkeypatch.setattr(QtWidgets.QInputDialog, "getText", staticmethod(self._text))
+        monkeypatch.setattr(QtWidgets.QMessageBox, "question", staticmethod(self._question))
+        monkeypatch.setattr(QtWidgets.QMessageBox, "information",
+                            staticmethod(lambda _p, title, text, *a, **k: self.notes.append(text)))
+        monkeypatch.setattr(QtWidgets.QMessageBox, "warning",
+                            staticmethod(lambda _p, title, text, *a, **k: self.notes.append(text)))
+
+        def no_file_dialogs(*a, **k):
+            raise AssertionError("no file dialog: themes are named, not browsed for")
+
+        monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", staticmethod(no_file_dialogs))
+
+    def _text(self, _parent, _title, label, *args, **kwargs):
+        self.asked.append(label)
+        return (self.names.pop(0), True) if self.names else ("", False)
+
+    def _question(self, _parent, _title, text, *args, **kwargs):
+        self.questions.append(text)
+        return self.reply
+
+
+@pytest.fixture
+def themes(request, tmp_path, monkeypatch):
+    """A themes folder with three themes, a daemon showing 'start', and
+    a trash of our own."""
+    request.getfixturevalue("home")
+    daemon = request.getfixturevalue("daemon")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    return daemon
+
+
+def editor(folder, cfg):
+    window = EditorWindow(ThemeDocument.open(folder), cfg)
+    window.show()
+    window.refresh_panel_status()
+    return window
+
+
+def test_list_shows_the_themes_open_and_on_panel(app, themes) -> None:
+    from akp02d import paths
+    window = editor(paths.themes_dir() / "neon", themes.config)
+    try:
+        pump(app, 0.2)
+        listed = window.theme_list
+        assert listed.names() == ["broken", "default", "neon", "start"]
+        item = {listed.list.item(i).text(): listed.list.item(i) for i in range(4)}
+        assert item["neon"].font().bold() and not item["start"].font().bold()
+        assert not item["start"].icon().isNull()                  # the panel's dot
+        assert "On the panel now" in item["start"].toolTip()
+        assert "On the panel" not in item["neon"].toolTip()
+        assert not listed.buttons["edit"].isEnabled()              # neon is open already
+        # A theme added behind the editor's back appears on its own.
+        shutil.copytree(paths.themes_dir() / "neon", paths.themes_dir() / "later")
+        pump(app, 0.6)
+        assert "later" in listed.names()
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_edit_and_apply_from_the_list(app, themes, monkeypatch) -> None:
+    from akp02d import paths
+    answers = Answers(monkeypatch)
+    window = editor(paths.themes_dir() / "neon", themes.config)
+    try:
+        window.edit_named("start")
+        assert window.document.directory.name == "start"
+        # Unsaved edits to the open theme: asked, saved, then applied.
+        window._widget_edited(Ref("label", 1), "size", 31)
+        pump(app, 0.2)
+        answers.reply = QtWidgets.QMessageBox.StandardButton.Save
+        window.edit_named("neon")       # asks to save or discard first
+        answers.reply = QtWidgets.QMessageBox.StandardButton.Save
+        assert window.document.directory.name == "neon"
+        assert "size = 31" in (paths.themes_dir() / "start" / "theme.toml").read_text()
+        window._widget_edited(Ref("label", 1), "size", 33)
+        pump(app, 0.2)
+        assert window.apply_named("neon")
+        assert answers.questions and "not saved" in answers.questions[-1]
+        assert "size = 33" in (paths.themes_dir() / "neon" / "theme.toml").read_text()
+        assert themes.theme.name == "neon" and window.panel_theme == "neon"
+        # Not the open one: applied straight from disk, nothing asked.
+        before = len(answers.questions)
+        assert window.apply_named("start") and themes.theme.name == "start"
+        assert len(answers.questions) == before
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_new_theme_is_named_not_browsed(app, themes, monkeypatch) -> None:
+    from akp02d import paths
+    answers = Answers(monkeypatch)
+    window = editor(paths.themes_dir() / "neon", themes.config)
+    try:
+        answers.names = ["neon", "fresh"]          # taken first: asked again
+        window.new_theme()
+        assert "already a theme called 'neon'" in answers.asked[1]
+        assert (paths.themes_dir() / "fresh" / "theme.toml").is_file()
+        assert window.document.directory == paths.themes_dir() / "fresh"
+        assert "fresh" in window.theme_list.names()
+        # Its edits save in place, nothing asked.
+        window.add_widget("label")
+        pump(app, 0.2)
+        asked = len(answers.asked)
+        assert window.save() and len(answers.asked) == asked
+        assert "[[widget.label]]" in (paths.themes_dir() / "fresh" / "theme.toml").read_text()
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_saving_an_untitled_theme_asks_only_its_name(app, themes, monkeypatch) -> None:
+    from akp02d import paths
+    answers = Answers(monkeypatch)
+    window = EditorWindow(ThemeDocument.new(), themes.config)
+    try:
+        window.show()
+        answers.names = ["bad/name", "untitled-one"]
+        assert window.save()
+        assert "no slashes" in answers.asked[1]
+        assert (paths.themes_dir() / "untitled-one" / "theme.toml").is_file()
+        assert window.theme_list.list.currentItem().text() == "untitled-one"
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_duplicate_copies_the_whole_folder(app, themes, monkeypatch) -> None:
+    from akp02d import paths
+    from PIL import Image
+    answers = Answers(monkeypatch)
+    Image.new("RGB", (4, 4)).save(paths.themes_dir() / "neon" / "art.png")
+    window = editor(paths.themes_dir() / "start", themes.config)
+    try:
+        answers.names = ["neon-2"]
+        window.duplicate_named("neon")
+        assert answers.asked == ["Name the copy of neon:"]
+        copy = paths.themes_dir() / "neon-2"
+        assert (copy / "theme.toml").is_file() and (copy / "art.png").is_file()
+        assert window.document.directory == copy
+    finally:
+        window.undo.setClean()
+        window.close()
+
+
+def test_rename_and_delete(app, themes, monkeypatch) -> None:
+    from akp02d import config as config_module, paths
+    answers = Answers(monkeypatch)
+    config_module.save_theme("neon")
+    cfg = config_module.load()
+    window = editor(paths.themes_dir() / "neon", cfg)
+    try:
+        # Not the one on the panel.
+        window.rename_named("start")
+        window.delete_named("start")
+        assert (paths.themes_dir() / "start").is_dir() and len(answers.notes) == 2
+        # The one akp02d starts with, and open: renamed, config and editor follow.
+        answers.names = ["glow"]
+        window.rename_named("neon")
+        assert (paths.themes_dir() / "glow").is_dir() and not (paths.themes_dir() / "neon").exists()
+        assert config_module.load().theme == "glow" and window.config.theme == "glow"
+        assert window.document.directory == paths.themes_dir() / "glow"
+        # Deleting the start theme is refused; another is moved to the trash.
+        window.delete_named("glow")
+        assert (paths.themes_dir() / "glow").is_dir()
+        answers.reply = QtWidgets.QMessageBox.StandardButton.Yes
+        window.edit_named("broken")
+        window.delete_named("broken")
+        assert not (paths.themes_dir() / "broken").exists()
+        trash = Path(os.environ["XDG_DATA_HOME"]) / "Trash" / "files"
+        assert any(p.name.startswith("broken") for p in trash.iterdir())
+        # The open theme went: the editor moved to one that is left.
+        assert window.document.directory.name in paths.theme_names()
+        assert "broken" not in window.theme_list.names()
+    finally:
+        window.undo.setClean()
+        window.close()

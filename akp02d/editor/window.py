@@ -9,7 +9,9 @@ screen is derived from it, so undo is just "put the old text back".
 
 from __future__ import annotations
 
+import dataclasses
 import logging
+import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -38,6 +40,7 @@ from .controls import Segmented
 from .document import DocumentError, Ref, ThemeDocument
 from .engine import ERROR, Engine, Problem, snap
 from .inspector import Inspector
+from .themes import ThemeList, ask_name
 from . import style
 
 log = logging.getLogger(__name__)
@@ -108,6 +111,8 @@ class EditorWindow(QMainWindow):
         self.undo.cleanChanged.connect(lambda _c: self._update_title())
         self.selection: Ref | str | None = None
         self.problems: list[Problem] = []
+        # What the running daemon shows (None: not running), for the list.
+        self.panel_theme: str | None = None
 
         self.setWindowTitle("akp02d Theme Editor")
         self.resize(1440, 960)
@@ -125,6 +130,7 @@ class EditorWindow(QMainWindow):
         self.timer.timeout.connect(self._tick)
         self.timer.start(round(1000 / Engine.LOOP_FPS))
         self.refresh(select_first=False)
+        self.theme_list.set_open(document.directory)
         QTimer.singleShot(0, self.canvas.fit)
 
     # -- construction --
@@ -201,12 +207,37 @@ class EditorWindow(QMainWindow):
         left.setObjectName("side")
         left.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         column = QVBoxLayout(left)
-        column.setContentsMargins(0, 12, 0, 0)
+        column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(0)
+        # Themes above layers, the divider between them draggable; the
+        # list starts short, since the layers are where the work is.
+        stack = QSplitter(Qt.Orientation.Vertical, left)
+        stack.setHandleWidth(1)
+        stack.setChildrenCollapsible(False)
+        themes_box = QWidget()
+        themes_column = QVBoxLayout(themes_box)
+        themes_column.setContentsMargins(0, 12, 0, 0)
+        themes_column.setSpacing(0)
+        heading = QLabel("THEMES")
+        heading.setObjectName("heading")
+        heading.setContentsMargins(14, 0, 14, 6)
+        themes_column.addWidget(heading)
+        self.theme_list = ThemeList()
+        self.theme_list.edit.connect(self.edit_named)
+        self.theme_list.apply.connect(self.apply_named)
+        self.theme_list.duplicate.connect(self.duplicate_named)
+        self.theme_list.rename.connect(self.rename_named)
+        self.theme_list.delete.connect(self.delete_named)
+        themes_column.addWidget(self.theme_list, 1)
+        stack.addWidget(themes_box)
+        layers_box = QWidget()
+        layers_column = QVBoxLayout(layers_box)
+        layers_column.setContentsMargins(0, 12, 0, 0)
+        layers_column.setSpacing(0)
         heading = QLabel("LAYERS")
         heading.setObjectName("heading")
         heading.setContentsMargins(14, 0, 14, 6)
-        column.addWidget(heading)
+        layers_column.addWidget(heading)
         self.layers = QTreeWidget()
         self.layers.setHeaderHidden(True)
         self.layers.setColumnCount(2)
@@ -218,7 +249,10 @@ class EditorWindow(QMainWindow):
             f"QTreeWidget::item {{ height: 30px; }}"
             f"QTreeWidget::item:selected {{ background: #24425a; color: {style.TEXT}; }}")
         self.layers.itemSelectionChanged.connect(self._layer_picked)
-        column.addWidget(self.layers, 1)
+        layers_column.addWidget(self.layers, 1)
+        stack.addWidget(layers_box)
+        stack.setSizes([210, 400])
+        column.addWidget(stack, 1)
         add = QFrame()
         add.setStyleSheet("QFrame { border-top: 1px solid #2b303a; }")
         add_column = QVBoxLayout(add)
@@ -660,9 +694,23 @@ class EditorWindow(QMainWindow):
         return answer == QMessageBox.StandardButton.Discard
 
     def new_theme(self) -> None:
+        """A new theme: named first, and made in the themes folder."""
         if not self._confirm_discard():
             return
-        self._replace(ThemeDocument.new(self.document.theme.get("orientation", "portrait")))
+        name = ask_name(self, "New theme", "Name the new theme:")
+        if name is None:
+            return
+        folder = _themes_folder() / name
+        document = ThemeDocument.new(self.document.theme.get("orientation", "portrait"),
+                                     path=folder / "theme.toml")
+        try:
+            folder.mkdir(parents=True)
+            document.save()
+        except OSError as exc:
+            QMessageBox.warning(self, "Cannot create", str(exc))
+            return
+        self._replace(document)
+        self.theme_list.reload()
 
     def open_theme(self) -> None:
         if not self._confirm_discard():
@@ -685,28 +733,29 @@ class EditorWindow(QMainWindow):
         self.selection = None
         self.undo.clear()
         self.refresh()
+        self.theme_list.set_open(document.directory)
         QTimer.singleShot(0, self.canvas.fit)
 
     def save(self, force_choose: bool = False) -> bool:
+        """Save the theme where it is. A theme with no home yet -- a new
+        one, or one that ships inside akp02d -- asks only for a name and
+        goes into the themes folder; so does Save As, as a copy."""
         doc = self.document
         target = doc.path
         bundled = target is not None and _inside(target, PACKAGE_DIR)
         if target is None or force_choose or bundled:
             if bundled and not force_choose:
-                QMessageBox.information(
-                    self, "Save a copy",
-                    "This theme ships inside akp02d, where an update would overwrite "
-                    "it. Save it as your own theme, in your themes folder, instead.")
-            suggested = _themes_folder() / (
-                (doc.directory.name if doc.directory else "my-theme") +
-                ("-copy" if bundled else "")) / "theme.toml"
-            name, _ = QFileDialog.getSaveFileName(self, "Save theme", str(suggested),
-                                                  "Theme (theme.toml)")
-            if not name:
+                label = ("This theme ships inside akp02d, where an update would overwrite "
+                         "it. It will be saved as your own theme.\n\nName it:")
+            elif force_choose:
+                label = "Save a copy of this theme as:"
+            else:
+                label = "Name the theme:"
+            suggested = (doc.directory.name + "-copy") if doc.directory else ""
+            name = ask_name(self, "Save theme", label, suggested)
+            if name is None:
                 return False
-            new = Path(name)
-            if new.name != "theme.toml":
-                new = new / "theme.toml" if not new.suffix else new.with_name("theme.toml")
+            new = _themes_folder() / name / "theme.toml"
             old_dir = doc.directory
             try:
                 new.parent.mkdir(parents=True, exist_ok=True)
@@ -718,6 +767,8 @@ class EditorWindow(QMainWindow):
                 return False
             self.engine._theme_key = None   # theme folder moved: rebuild
             self.refresh()
+            self.theme_list.reload()
+            self.theme_list.set_open(doc.directory)
         else:
             try:
                 doc.save()
@@ -729,6 +780,122 @@ class EditorWindow(QMainWindow):
         self.statusBar().showMessage(f"Saved {doc.path}", 4000)
         return True
 
+    # -- the themes list --
+
+    def edit_named(self, name: str) -> None:
+        folder = _themes_folder() / name
+        if self.document.directory is not None and _same(self.document.directory, folder):
+            return
+        if not self._confirm_discard():
+            return
+        try:
+            document = ThemeDocument.open(folder / "theme.toml")
+        except (OSError, DocumentError) as exc:
+            QMessageBox.warning(self, "Cannot open", str(exc))
+            return
+        self._replace(document)
+
+    def apply_named(self, name: str) -> bool:
+        """Show a theme from the list on the panel. The open one, with
+        edits not saved, asks first -- else the panel would show the
+        version on disk without a word."""
+        folder = _themes_folder() / name
+        is_open = self.document.directory is not None and _same(self.document.directory, folder)
+        if is_open and not self.undo.isClean():
+            answer = QMessageBox.question(
+                self, "Unsaved changes",
+                f"{name} has changes that are not saved. Save them first, so the "
+                f"panel shows them?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel)
+            if answer == QMessageBox.StandardButton.Cancel:
+                return False
+            if answer == QMessageBox.StandardButton.Save and not self.save():
+                return False
+        return self._send_theme(name, save=False)
+
+    def duplicate_named(self, name: str) -> None:
+        if not self._confirm_discard():
+            return
+        copy = ask_name(self, "Duplicate theme", f"Name the copy of {name}:", f"{name}-copy")
+        if copy is None:
+            return
+        try:
+            shutil.copytree(_themes_folder() / name, _themes_folder() / copy)
+            document = ThemeDocument.open(_themes_folder() / copy / "theme.toml")
+        except (OSError, DocumentError) as exc:
+            QMessageBox.warning(self, "Cannot duplicate", str(exc))
+            return
+        self._replace(document)
+        self.theme_list.reload()
+        self.statusBar().showMessage(f"Duplicated {name} as {copy}", 4000)
+
+    def rename_named(self, name: str) -> None:
+        if name == self.panel_theme:
+            QMessageBox.information(self, "On the panel",
+                                    f"{name} is on the panel. Switch the panel to another "
+                                    f"theme first, then rename it.")
+            return
+        folder = _themes_folder() / name
+        is_open = self.document.directory is not None and _same(self.document.directory, folder)
+        if is_open and not self.undo.isClean() and not self.save():
+            return
+        new = ask_name(self, "Rename theme", f"New name for {name}:", name)
+        if new is None:
+            return
+        try:
+            folder.rename(_themes_folder() / new)
+        except OSError as exc:
+            QMessageBox.warning(self, "Cannot rename", str(exc))
+            return
+        if self.config.theme == name:
+            # akp02d starts with it: keep it starting with it.
+            try:
+                config_module.save_theme(new, self.config.source)
+                self.config = dataclasses.replace(self.config, theme=new)
+            except OSError as exc:
+                QMessageBox.warning(self, "Renamed, but", f"akp02d.toml still names "
+                                    f"{name!r}: {exc}")
+        if is_open:
+            self._replace(ThemeDocument.open(_themes_folder() / new / "theme.toml"))
+        self.theme_list.reload()
+        self.statusBar().showMessage(f"Renamed {name} to {new}", 4000)
+
+    def delete_named(self, name: str) -> None:
+        if name == self.panel_theme:
+            QMessageBox.information(self, "On the panel",
+                                    f"{name} is on the panel. Switch the panel to another "
+                                    f"theme first, then delete it.")
+            return
+        if name == self.config.theme:
+            QMessageBox.information(self, "akp02d starts with it",
+                                    f"akp02d.toml starts the panel with {name}. Make "
+                                    f"another theme the one it starts with first "
+                                    f"(Apply and start with it).")
+            return
+        answer = QMessageBox.question(
+            self, "Delete theme", f"Move {name} to the trash?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        folder = _themes_folder() / name
+        is_open = self.document.directory is not None and _same(self.document.directory, folder)
+        try:
+            paths.trash(folder)
+        except OSError as exc:
+            QMessageBox.warning(self, "Cannot delete",
+                                f"{folder} could not be moved to the trash: {exc}")
+            return
+        if is_open:
+            # Nothing to edit any more: the first theme left, or a new one.
+            left = paths.theme_names()
+            if left:
+                self._replace(ThemeDocument.open(_themes_folder() / left[0] / "theme.toml"))
+            else:
+                self._replace(ThemeDocument.new())
+        self.theme_list.reload()
+        self.statusBar().showMessage(f"Moved {name} to the trash", 4000)
+
     # -- the running daemon --
 
     def refresh_panel_status(self) -> None:
@@ -737,9 +904,15 @@ class EditorWindow(QMainWindow):
         except control.ControlError:
             self.status_panel.setText("Panel: not running")
             self.status_panel.setStyleSheet(f"color: {style.FAINT};")
+            self.panel_theme = None
+            self.theme_list.set_panel(None)
             return
-        self.status_panel.setText(f"Panel: {reply.get('theme', '?')}")
+        self.panel_theme = reply.get("theme")
+        self.status_panel.setText(f"Panel: {self.panel_theme or '?'}")
         self.status_panel.setStyleSheet(f"color: {style.OK};")
+        # By name only for a theme from the themes folder.
+        in_folder = _inside(Path(reply.get("path", "")), _themes_folder())
+        self.theme_list.set_panel(self.panel_theme if in_folder else None)
 
     def apply_to_panel(self, save: bool = False) -> bool:
         """Show this theme on the panel: saved first, then the daemon is
@@ -761,6 +934,9 @@ class EditorWindow(QMainWindow):
         # By name when it lives in the themes folder -- the name is what
         # akp02d.toml would hold -- else by its path.
         name = folder.name if _inside(folder, _themes_folder()) else str(folder)
+        return self._send_theme(name, save)
+
+    def _send_theme(self, name: str, save: bool) -> bool:
         try:
             reply = control.request({"cmd": "theme", "name": name, "save": save})
         except control.ControlError as exc:
@@ -770,6 +946,8 @@ class EditorWindow(QMainWindow):
             QMessageBox.warning(self, "Panel kept its theme", reply.get("error", "refused"))
             return False
         note = " (akp02d will start with it)" if reply.get("saved") else ""
+        if reply.get("saved"):
+            self.config = dataclasses.replace(self.config, theme=name)
         self.statusBar().showMessage(f"Showing {reply.get('theme')} on the panel{note}", 5000)
         self.refresh_panel_status()
         return True
@@ -812,6 +990,13 @@ def controls_number(value: Any) -> str:
 
 def _themes_folder() -> Path:
     return paths.themes_dir()
+
+
+def _same(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
 
 
 def _inside(path: Path, folder: Path) -> bool:
