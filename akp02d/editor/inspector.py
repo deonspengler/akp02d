@@ -457,8 +457,7 @@ class Inspector(QWidget):
                       # clicked passes `checked` first: take it, so it never
                       # lands in `k` -- which would reset a key named False.
                       lambda _checked=False, k=option.key: self.widget_edited.emit(ref, k, None),
-                      doc, required=option.required,
-                      inactive=option.inactive_reason(values))
+                      doc, required=option.required)
 
         known = set(RESERVED) | {o.key for o in options}
         unknown = [k for k in entry if k not in known]
@@ -668,16 +667,10 @@ class Inspector(QWidget):
         return form
 
     def _row(self, form: QFormLayout, key: str, control: QWidget, explicit: bool,
-             reset, doc: str = "", required: bool = False,
-             inactive: str | None = None) -> None:
+             reset, doc: str = "", required: bool = False) -> None:
         name = QLabel(key + (" *" if required else ""))
         name.setMinimumWidth(84)
-        name.setStyleSheet(f"color: {style.MUTED if explicit and not inactive else style.FAINT};")
-        if inactive:
-            # Set aside by another option: greyed, not hidden, so it is
-            # plain which of the two is in effect. The × stays usable.
-            doc = inactive + (f"\n\n{doc}" if doc else "")
-            control.setEnabled(False)
+        name.setStyleSheet(f"color: {style.MUTED if explicit else style.FAINT};")
         if doc:
             name.setToolTip(doc)
             control.setToolTip(doc)

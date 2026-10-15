@@ -123,11 +123,6 @@ class Option:
     # Suggestions, not limits: a theme may name what only the panel's
     # own machine has.
     suggest: Callable[[Values], list[tuple[str, str]]] | None = None
-    # For tools: why the option is set aside right now -- `color` while a
-    # gradient fills the text -- or None. Unlike `when`, the option still
-    # shows (it comes back into use the moment the other is cleared), but
-    # greyed, so it is plain which one is in effect.
-    inactive: Callable[[Values], str | None] | None = None
 
     @property
     def required(self) -> bool:
@@ -154,15 +149,6 @@ class Option:
             return bool(self.when(values))
         except Exception:  # a half-edited theme; show the option anyway
             return True
-
-    def inactive_reason(self, values: Values) -> str | None:
-        """Why this option is overridden by another, or None."""
-        if self.inactive is None:
-            return None
-        try:
-            return self.inactive(values) or None
-        except Exception:
-            return None
 
     # -- reading --
 
