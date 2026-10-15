@@ -72,19 +72,19 @@ POSITION_MAP = {
 SILENCE = cava.MAX // 200
 # How long a silence lasts before the sweep starts, and how the sweep moves.
 SILENT_SEC = 5.0
-SWEEP_PERIOD_SEC = 1 / 0.35   # one pass across the bars
+SWEEP_PERIOD_SEC = 1 / 0.35   # one pass across the bars, one way
 SWEEP_WIDTH = 2.5             # bars either side of the peak that light
 SWEEP_FADE_SEC = 1.0
 SWEEP_RELEASE = 0.82          # per 1/30 s: the trail a falling bar leaves
 
 
 class Sweep:
-    """A peak running across the bars, looping, as cava levels.
+    """A peak running across the bars and back, as cava levels.
 
     A full-height peak a few bars wide, with cava's own feel: a bar
     jumps up as the peak arrives and falls back slowly, so the peak
     drags a fading tail behind it. In stereo it runs out from the middle
-    to both edges, mirrored, as cava lays the two channels out -- the
+    to both edges and back in, mirrored, as cava lays the two channels out -- the
     right channel a little different, as real stereo is. It fades in
     over its first second, so a silence does not snap into motion.
     """
@@ -102,7 +102,10 @@ class Sweep:
 
     def frame(self, now: float, since: float) -> tuple[int, ...]:
         half = self._bars // 2 if self._stereo else self._bars
-        centre = (now / SWEEP_PERIOD_SEC % 1.0) * max(half - 1, 0)
+        # There and back: a triangle wave, so the peak turns at each end
+        # instead of jumping back to the start.
+        phase = now / SWEEP_PERIOD_SEC % 2.0
+        centre = (phase if phase < 1.0 else 2.0 - phase) * max(half - 1, 0)
         strength = min(1.0, max(0.0, since) / SWEEP_FADE_SEC)
         target = [strength * max(0.0, 1.0 - abs(i - centre) / SWEEP_WIDTH)
                   for i in range(half)]

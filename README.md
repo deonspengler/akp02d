@@ -188,9 +188,9 @@ when_silent = "sweep"           # or "none"
 ```
 
 After five seconds with nothing from cava -- a pause, the end of a
-playlist, a muted tab -- a spectrum runs a peak across its bars, trailing
-a falling tail the way cava's bars fall (out from the middle in stereo,
-round the ring on a radial one), until sound returns, which brings the
+playlist, a muted tab -- a spectrum runs a peak across its bars and back
+again, trailing a falling tail the way cava's bars fall (in stereo, out
+from the middle to both edges and back in), until sound returns, which brings the
 bars straight back. `when_silent = "none"` leaves them flat instead. The
 editor's made-up music goes quiet for ten seconds every forty, so the
 sweep shows in the preview too.

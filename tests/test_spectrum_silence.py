@@ -91,14 +91,20 @@ def peak(sweep, now: float) -> int:
     return max(range(len(frame)), key=frame.__getitem__)
 
 
-def test_sweep_moves_across_and_loops() -> None:
+def test_sweep_goes_there_and_back() -> None:
     period = spectrum_module.SWEEP_PERIOD_SEC
     sweep = spectrum_module.Sweep(32, stereo=False)
-    positions = [peak(sweep, period * (0.1 + 0.2 * t)) for t in range(4)]
-    assert positions == sorted(positions) and positions[0] < positions[-1]   # left to right
-    assert peak(sweep, period * 0.3) == peak(sweep, period * 1.3)          # and round again
+    out = [peak(sweep, period * (0.1 + 0.2 * t)) for t in range(5)]
+    back = [peak(sweep, period * (1.1 + 0.2 * t)) for t in range(5)]
+    assert out == sorted(out) and out[0] < out[-1]          # left to right
+    assert back == sorted(back, reverse=True)               # then right to left
+    assert peak(sweep, period * 0.3) == peak(sweep, period * 2.3)   # and again
+    # It turns at the end rather than jumping: no step bigger than the
+    # pass would make anyway.
+    path = [peak(sweep, period * (0.9 + i / 30)) for i in range(7)]
+    assert max(abs(b - a) for a, b in zip(path, path[1:])) <= 2
     sweep.reset()
-    assert max(sweep.frame(0.0, 5.0)) == MAX                               # a full-height peak
+    assert max(sweep.frame(0.0, 5.0)) == MAX                # a full-height peak
 
 
 def test_sweep_trails_and_fades_in() -> None:
@@ -122,5 +128,11 @@ def test_stereo_sweep_runs_out_from_the_middle() -> None:
     left = max(range(16), key=frame.__getitem__)
     right = max(range(16, 32), key=frame.__getitem__)
     assert abs(left - (31 - right)) <= 1             # mirrored
+    sweep.reset()
     later = sweep.frame(period * 0.5, 5.0)
     assert max(range(16), key=later.__getitem__) < left    # moving outward
+    sweep.reset()
+    edge = sweep.frame(period * 0.95, 5.0)
+    sweep.reset()
+    home = sweep.frame(period * 1.9, 5.0)
+    assert max(range(16), key=home.__getitem__) > max(range(16), key=edge.__getitem__)  # back in
