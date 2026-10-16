@@ -173,18 +173,6 @@ def test_the_four_channel_choices(monkeypatch) -> None:
         assert out["channels"] == "mono" and out["mono_option"] == mono
 
 
-def test_an_older_mono_theme_still_loads(monkeypatch) -> None:
-    out = output(cava_text(monkeypatch, {"channels": "mono"}))
-    assert out["mono_option"] == "average"
-    out = output(cava_text(monkeypatch, {"channels": "mono", "mono_option": "right"}))
-    assert out["mono_option"] == "right"
-    schema = lookup("spectrum").schema
-    shown = schema.effective({"channels": "mono", "mono_option": "left"})
-    assert shown.channels == "left"                  # what the editor shows
-    assert "both" not in schema["channels"].choices  # and never offers
-    assert schema.effective({"channels": "both"}).channels == "mono"   # the name for a day
-
-
 def test_an_unknown_channel_is_refused(monkeypatch) -> None:
     import pytest
     from akp02d.table import SettingsError

@@ -26,6 +26,7 @@ from ..schema import (
     string,
 )
 from . import cava
+from ..textfx import READING_SHAPES, gradient_options
 from .base import PluginError, Widget, WidgetSpec, dry_run, preview, register
 
 if TYPE_CHECKING:
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 TYPES = ("bars", "mirrored", "segmented", "radial")
-# Which gradient a type reads position from, when color_by = "position".
 # Where a pixel sits along the ramp, per type. Bars run bottom-up, so a
 # tall bar reaches the last stop; mirrored measures from its centre line.
 POSITION_MAP = {
@@ -107,13 +107,6 @@ CHANNELS = ("stereo", "mono", "left", "right")
 _MONO = {"mono": "average", "left": "left", "right": "right"}
 
 
-def _from_mono(peek) -> str:
-    """channels = "mono" as an older theme meant it: with a mono_option
-    of left or right, that channel alone."""
-    option = peek("mono_option")
-    return {"left": "left", "right": "right"}.get(option, "mono")
-
-
 @register("spectrum")
 class SpectrumWidget(Widget):
     """An audio visualiser, driven by cava."""
@@ -122,21 +115,11 @@ class SpectrumWidget(Widget):
     summary = "Audio spectrum from cava: bars, mirrored, segmented or radial"
     schema = Schema(
         choice("type", TYPES, "bars", group="Shape"),
-        choice("color_by", ("position", "level"),
-               Auto(lambda v, spec: "level" if v.type == "radial" else "position",
-                    "level for radial, else position"),
-               group="Colour",
-               doc="position: the gradient is fixed in place; level: each "
-                   "bar takes one colour by how loud it is"),
         integer("bars", 32, 1, 512, group="Shape",
                 doc="Number of bars; must be even in stereo"),
         choice("channels", CHANNELS, "stereo", group="Audio",
-               legacy={"mono": _from_mono, "both": "mono"}, replaces=("mono_option",),
                doc="stereo: both channels, mirrored, lows in the middle; "
                    "mono: the two mixed into one; left or right: that one alone"),
-        # What a "mono" theme said which channel to use, before channels
-        # said it itself. Read so such a theme still loads; never shown.
-        string("mono_option", None, group="Audio", when=lambda v: False),
         boolean("reverse", False, group="Shape",
                 doc="Swap low and high frequencies"),
         integer("smoothing", None, 0, 100, group="Audio",
@@ -169,7 +152,14 @@ class SpectrumWidget(Widget):
                   "for none"),
         integer("origin_width", 1, 1, 32, group="Colour",
                 when=lambda v: v.origin is not None),
-        colors("gradient", ("#00ff00", "#ffff00", "#ff0000"), group="Colour"),
+        colors("color", ("#00ff00", "#ffff00", "#ff0000"), group="Colour",
+               doc="One colour, or several for a gradient"),
+        # Radial reads better with a flat colour per spoke: along the scale,
+        # every spoke would be shaded the same way however loud it is.
+        *gradient_options("color", group="Colour", subject="the spectrum",
+                          shapes=READING_SHAPES,
+                          default_shape=Auto(lambda v, spec: "level" if v.type == "radial"
+                                             else "scale", "level for radial, else scale")),
         choice("when_silent", ("sweep", "none"), "sweep", group="Audio",
                doc="After a few seconds of silence: sweep runs a peak across "
                    "the bars until sound returns; none leaves them flat"),
@@ -191,10 +181,7 @@ class SpectrumWidget(Widget):
         options = spec.options
         o = self.schema.read(options, spec)
         kind = o.type
-        # Radial reads better with a flat colour per spoke: a radial
-        # position gradient shades every spoke the same way regardless of
-        # how loud it is (see color_by).
-        by = o.color_by
+        shape = o.color_shape if len(o.color) > 1 else "scale"
         self._bars = o.bars
         # Stereo, cava's own default, mirrors the channels with the
         # low frequencies in the middle -- on a ring that gives a shape
@@ -234,7 +221,7 @@ class SpectrumWidget(Widget):
         self._clearance = o.peak_gap
         origin = o.origin
         origin_width = o.origin_width
-        stops = o.gradient
+        stops = o.color
         sections = cava.merge(named, o.cava, spec.id)
         options.reject_unknown()
 
@@ -245,7 +232,7 @@ class SpectrumWidget(Widget):
         # Segments are already discrete, so one empty segment is enough.
         self._threshold = 2 if kind == "segmented" else self._cap + self._clearance
         self._lut = gradient.lut(stops)
-        if by == "level":
+        if shape == "level":
             # Coloured shapes go straight onto the surface: no mask, no
             # gradient image, no composite.
             self._fills = None
@@ -254,7 +241,9 @@ class SpectrumWidget(Widget):
             self._surface_draw = ImageDraw.Draw(self.surface)
         else:
             self._fills = (255,) * self._bars
-            self._gradient = _gradient(POSITION_MAP[kind], width, height, self._lut)
+            self._gradient = (
+                _gradient(POSITION_MAP[kind], width, height, self._lut) if shape == "scale"
+                else gradient.paint(tuple(stops), (width, height), o.color_angle, shape))
             self._mask = Image.new("L", (width, height), 0)
             self._mask_box = (0, 0, width - 1, height - 1)  # inclusive
             self._mask_draw = ImageDraw.Draw(self._mask)

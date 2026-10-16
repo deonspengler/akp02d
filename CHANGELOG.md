@@ -14,8 +14,11 @@ First release. Requires Python 3.13 or newer.
 - Sources: `time`, `cpu`, `memory`, `disk`, `network`, `temperature`,
   `hostname`, `uptime`, `kernel`, `ip`, `now_playing` (MPRIS through
   one shared playerctl) and `volume` (one shared `pactl subscribe`).
-- Gradients wherever a colour fills an area, with angle and shape;
-  label outline, shadow and glow.
+- Every colour option takes one colour or several. A gradient is laid
+  out by `<option>_shape`: `linear` (at `<option>_angle`) or `radial`,
+  and for one that shows a reading also `level` (one colour picked by
+  the reading) or `scale` (along the scale). Label outline, shadow and
+  glow.
 - The spectrum sweeps a peak across its bars after five seconds of
   silence (`when_silent`); `channels` is stereo, mono, left or right.
 - Gauges: `start` (bottom or top) and `direction` (clockwise or

@@ -31,7 +31,7 @@ def graph(options: dict):
                   background=Image.new("RGB", (462, 1920), BG), font_default=None,
                   widgets=())
     spec = WidgetSpec("graph#1", "graph", Rect(0, 0, 120, 100), None,
-                      Table({"source": "cpu", "gradient": ["#ffffff"], **options}))
+                      Table({"source": "cpu", "line_color": ["#ffffff"], **options}))
     widget = lookup("graph")(spec, theme)
     widget._source = Steady()
     for step in range(130):

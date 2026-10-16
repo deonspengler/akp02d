@@ -119,12 +119,12 @@ def test_bar_segments_move_in_whole_cells() -> None:
 
 
 def test_bar_fills_from_the_start() -> None:
-    bar = build("bar", {"source": "cpu", "gradient": ["#ff0000"], "track": "#000080"})
+    bar = build("bar", {"source": "cpu", "fill": ["#ff0000"], "track": "#000080"})
     bar._source = Fixed(0.25)
     bar.render(0.0)
     assert bar.surface.getpixel((10, 40)) == (255, 0, 0)
     assert bar.surface.getpixel((290, 40)) == (0, 0, 128)
-    tall = build("bar", {"source": "cpu", "gradient": ["#ff0000"], "track": "#000080"},
+    tall = build("bar", {"source": "cpu", "fill": ["#ff0000"], "track": "#000080"},
                  Rect(0, 0, 40, 200))
     tall._source = Fixed(0.25)
     tall.render(0.0)

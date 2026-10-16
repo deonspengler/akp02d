@@ -607,14 +607,6 @@ class EditorWindow(QMainWindow):
                 used = sources.format_fields(old)
                 if not used or not used <= set(new_cls.fields):
                     changes["format"] = None
-        # Keys an older theme used for what this option now says go with
-        # it, in the same step (spectrum's mono_option, with channels).
-        schema = getattr(lookup(ref.plugin), "schema", None)
-        if schema is not None and key in schema:
-            entry = self.document.entry(ref)
-            for old_key in schema[key].replaces:
-                if old_key in entry:
-                    changes[old_key] = None
         self.apply(f"Change {widget_id} {key}",
                    lambda doc: doc.update(ref, changes), merge=f"{ref}.{key}")
 

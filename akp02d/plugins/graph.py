@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw
 
 from .. import gradient, sources
 from ..schema import Auto, Schema, choice, color, colors, integer, number, source
-from ..textfx import gradient_options
+from ..textfx import READING_SHAPES, gradient_options
 from .base import Widget, WidgetSpec, register
 
 
@@ -38,10 +38,13 @@ class GraphWidget(Widget):
     summary = "Recent history as a scrolling trace; a pair (network) mirrors"
     schema = Schema(
         source(accepts=(sources.SCALAR, sources.PAIR), required=True),
-        colors("gradient", ("#11e3f5", "#66f0ff"), group="Line",
-               doc="Line colour by height; for a pair, the upper (up) trace"),
-        colors("gradient_down", ("#fd44dd", "#ff99ee"), group="Line",
-               doc="The lower (down) trace of a pair", when=_pair),
+        colors("line_color", ("#11e3f5", "#66f0ff"), group="Line",
+               doc="One colour, or several for a gradient; for a pair, the "
+                   "upper (up) trace"),
+        colors("line_color_down", ("#fd44dd", "#ff99ee"), group="Line", when=_pair,
+               doc="The lower (down) trace of a pair, laid out like line_color"),
+        *gradient_options("line_color", group="Line", subject="the graph",
+                          shapes=READING_SHAPES, default_shape="scale"),
         colors("fill", None, group="Fill",
                doc="Colour under the line, or several for a gradient; empty "
                    "for none"),
@@ -73,9 +76,9 @@ class GraphWidget(Widget):
                group="Data", doc="Top of the range"),
     )
 
-    __slots__ = ("_fill", "_fill_alpha", "_gradient", "_history", "_inset",
+    __slots__ = ("_colours", "_fill", "_fill_alpha", "_history", "_inset",
                  "_last", "_line", "_line_draw", "_line_width", "_log",
-                 "_mirrored", "_range", "_second", "_second_gradient",
+                 "_mirrored", "_range", "_second",
                  "_source")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
@@ -84,8 +87,8 @@ class GraphWidget(Widget):
         o = self.schema.read(options, spec)
         self._source = o.source
         self._mirrored = self._source.kind == sources.PAIR
-        stops = o.gradient
-        down_stops = o.gradient_down
+        stops = o.line_color
+        down_stops = o.line_color_down
         # Painted once: the trace only changes which part of it shows.
         self._fill = (None if o.fill is None else
                       gradient.paint(tuple(o.fill), spec.rect.size,
@@ -124,14 +127,23 @@ class GraphWidget(Widget):
         self._history: deque[float] = deque(maxlen=points)
         self._second: deque[float] = deque(maxlen=points) if self._mirrored else None
         self._inset = self._line_width  # keep the stroke inside the box
-        # Mirrored traces grow away from the middle, so their ramp runs
-        # from the centre line outward rather than bottom to top.
+        # Each trace's colours, made once: by height (from the centre line
+        # out, for a pair), or across the box. By level there is no image;
+        # the line takes the colour of its newest reading.
+        shape = o.line_color_shape if len(stops) > 1 or len(down_stops) > 1 else "scale"
         where = "centre" if self._mirrored else "up"
-        self._gradient = gradient.image(stops, (width, height), where)
-        self._second_gradient = (
-            gradient.image(down_stops, (width, height), where)
-            if self._mirrored else None
-        )
+
+        def colouring(trace_stops) -> tuple[Image.Image | None, tuple]:
+            if shape == "scale":
+                return gradient.image(trace_stops, (width, height), where), ()
+            if shape in gradient.SHAPES:
+                return gradient.paint(tuple(trace_stops), (width, height),
+                                      o.line_color_angle, shape), ()
+            return None, gradient.lut(trace_stops)
+
+        self._colours = [colouring(stops)]
+        if self._mirrored:
+            self._colours.append(colouring(down_stops))
         # One mask and one draw handle for the widget's lifetime.
         self._line = Image.new("L", (width, height), 0)
         self._line_draw = ImageDraw.Draw(self._line)
@@ -181,15 +193,15 @@ class GraphWidget(Widget):
             middle = height // 2
             span = middle - self._inset
             series = [
-                (self._rows(self._history, middle, span, -1), self._gradient),
-                (self._rows(self._second, middle, span, 1), self._second_gradient),
+                (self._rows(self._history, middle, span, -1), self._history),
+                (self._rows(self._second, middle, span, 1), self._second),
             ]
             baseline = middle
         else:
             span = height - 1 - self._inset * 2
             series = [
                 (self._rows(self._history, height - 1 - self._inset, span, -1),
-                 self._gradient)
+                 self._history)
             ]
             baseline = height - 1
 
@@ -199,7 +211,7 @@ class GraphWidget(Widget):
         self._last = state
 
         self.clear()
-        for rows, ramp in series:
+        for (rows, history), (image, lut) in zip(series, self._colours):
             step = (width - 1) / max(len(rows) - 1, 1)
             points = [(index * step, row) for index, row in enumerate(rows)]
             if self._fill is not None and len(points) > 1:
@@ -214,7 +226,9 @@ class GraphWidget(Widget):
                 self._line_draw.line(points, fill=255, width=self._line_width)
             else:
                 self._line_draw.point(points, fill=255)
-            self.surface.paste(ramp, (0, 0), self._line)
+            if image is None:
+                image = gradient.colour_at(lut, self._fraction(history[-1]) if history else 0.0)
+            self.surface.paste(image, (0, 0), self._line)
         return True
 
 

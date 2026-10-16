@@ -769,26 +769,6 @@ def test_layer_icons_duplicate_and_delete(app, tmp_path: Path) -> None:
         window.close()
 
 
-def test_picking_channels_clears_an_older_mono_option(app, tmp_path: Path) -> None:
-    window = _window(app, tmp_path)
-    ref = Ref("spectrum", 1)
-    try:
-        window.apply("old theme", lambda doc: doc.update(
-            ref, {"channels": "mono", "mono_option": "left"}))
-        pump(app, 0.2)
-        window._widget_edited(ref, "channels", "mono")
-        pump(app, 0.2)
-        entry = window.document.entry(ref)
-        assert entry["channels"] == "mono" and "mono_option" not in entry
-        window.undo.undo()                           # one step brings both back
-        pump(app, 0.2)
-        assert window.document.entry(ref)["mono_option"] == "left"
-    finally:
-        window.undo.setClean()
-        window.close()
-        pump(app)
-
-
 def _drop(window, plugin: str, scene_x: float, scene_y: float):
     """A drop of an Add Widget button at a point on the panel, through
     the canvas's own drop handling."""

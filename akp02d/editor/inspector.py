@@ -620,8 +620,7 @@ class Inspector(QWidget):
             control = field
         elif kind == CHOICE:
             field = controls.ChoiceField(option.choices)
-            # An older theme's value, shown as the choice it now means.
-            field.set_value(option.modern(value, entry.get), label)
+            field.set_value(value, label)
             field.changed.connect(emit)
             control = field
         elif kind == COLOR:
@@ -712,7 +711,7 @@ class Inspector(QWidget):
         for option in toggles:
             toggle = controls.IconToggle(option.key, option.choices, option.default,
                                          option.doc, holder)
-            toggle.set_value(option.modern(entry.get(option.key), entry.get))
+            toggle.set_value(entry.get(option.key))
             toggle.changed.connect(
                 lambda value, k=option.key: self.widget_edited.emit(ref, k, value))
             row.addWidget(toggle)

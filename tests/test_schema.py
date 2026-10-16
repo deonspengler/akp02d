@@ -94,8 +94,8 @@ def test_auto_defaults() -> None:
     assert pair.points == 300
     scalar = graph.effective({"source": "cpu"}, spec, resolve=sources.lookup)
     assert scalar.scale == "linear" and scalar.min == 0.0 and scalar.max == 1.0
-    assert not graph["gradient_down"].applies(scalar)
-    assert graph["gradient_down"].applies(pair)
+    assert not graph["line_color_down"].applies(scalar)
+    assert graph["line_color_down"].applies(pair)
 
 
 def test_when_hides_irrelevant_options() -> None:
@@ -106,7 +106,7 @@ def test_when_hides_irrelevant_options() -> None:
     assert spectrum["inner"].applies(radial)
     assert not spectrum["peak_hold"].applies(bars)
     assert spectrum["peak_hold"].applies(radial)
-    assert radial.color_by == "level" and bars.color_by == "position"
+    assert radial.color_shape == "level" and bars.color_shape == "scale"
 
 
 def test_reading() -> None:

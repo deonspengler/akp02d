@@ -75,7 +75,7 @@ def test_needle_colour_follows_the_value() -> None:
 
 
 def test_arc_needle_takes_the_arc_colour() -> None:
-    w = gauge({"needle": True, "gradient": ["#00ff00", "#ff0000"], "color_by": "level"},
+    w = gauge({"needle": True, "fill": ["#00ff00", "#ff0000"], "fill_shape": "level"},
               value=1.0)
     w.render(0.0)
     assert along(w, 1.0, 0.5) == RED
@@ -154,7 +154,8 @@ def test_style_hides_what_it_does_not_use() -> None:
                                 if o.applies({"style": style, **v})}
     assert "thickness" in shown("arc") and "face" not in shown("arc")
     assert "needle_color" not in shown("arc") and "needle_color" in shown("arc", needle=True)
-    assert "face" in shown("meter") and "gradient" not in shown("meter")
+    assert "face" in shown("meter") and "fill" not in shown("meter")
+    assert "fill_shape" not in shown("meter")
     assert "minor_ticks" not in shown("arc", ticks=0)
     assert "minor_ticks" in shown("dial", ticks=5)
 
@@ -165,7 +166,7 @@ TRACK = (10, 60, 70)
 
 
 def arc(options: dict, value: float, size=(160, 160)):
-    w = gauge({"track": "#0a3c46", "gradient": "#ff0000", **options}, size=size, value=value)
+    w = gauge({"track": "#0a3c46", "fill": "#ff0000", **options}, size=size, value=value)
     w.render(0.0)
     return w
 
@@ -231,7 +232,7 @@ def test_round_tip_stays_inside_flat_ends() -> None:
 
 
 def test_position_colours_run_round_the_arc() -> None:
-    w = arc({"color_by": "position", "gradient": ["#0000ff", "#ff0000"]}, 1.0)
+    w = arc({"fill_shape": "scale", "fill": ["#0000ff", "#ff0000"]}, 1.0)
     start, end = on_stroke(w, 0.03), on_stroke(w, 0.97)
     assert start[2] > start[0] and end[0] > end[2]
 
@@ -265,7 +266,7 @@ def lit_half(widget) -> str:
     return "top" if top > bottom else "bottom"
 
 
-ARC = {"gradient": ["#20ff20"], "track": "#000000"}
+ARC = {"fill": ["#20ff20"], "track": "#000000"}
 
 
 def test_direction_runs_the_fill_the_other_way() -> None:

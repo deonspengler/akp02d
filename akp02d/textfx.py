@@ -18,6 +18,7 @@ pixels a theme got before effects existed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -40,20 +41,32 @@ def fill_options(fill: str = "#ffffff", group: str = "Text") -> list[Option]:
     ]
 
 
+# How a gradient that shows a reading is laid out: one colour picked by
+# the reading, along the scale, or across the box like any other.
+READING_SHAPES = ("level", "scale", *gradient.SHAPES)
+
+
 def gradient_options(key: str, group: str, subject: str = "it",
-                     default_angle: float = 180.0) -> list[Option]:
-    """`<key>_shape` and `<key>_angle`, for a colours option painted
-    across an area: shown once the colour has a second stop."""
+                     shapes: tuple[str, ...] = gradient.SHAPES,
+                     default_shape: Any = "linear", when=None) -> list[Option]:
+    """`<key>_shape` and `<key>_angle` for a colours option, shown once it
+    has a second stop. `shapes` is gradient.SHAPES for an area, or
+    READING_SHAPES for a gradient that shows a reading."""
     def has_gradient(values) -> bool:
         stops = values.get(key)
-        return isinstance(stops, (list, tuple)) and len(stops) > 1
+        return (isinstance(stops, (list, tuple)) and len(stops) > 1
+                and (when is None or when(values)))
 
+    doc = (f"linear runs across {subject} at an angle; radial from the middle out")
+    if "level" in shapes:
+        doc = ("level: one colour, picked by the reading; scale: the gradient "
+               "runs along the scale, so a higher reading reaches further "
+               f"into it; {doc}")
     return [
-        choice(f"{key}_shape", gradient.SHAPES, "linear", group=group, when=has_gradient,
-               doc=f"linear runs across {subject} at an angle; radial from the "
-                   f"middle out"),
-        angle(f"{key}_angle", default_angle, group=group,
-              when=lambda v: has_gradient(v) and v.get(f"{key}_shape", "linear") != "radial",
+        choice(f"{key}_shape", shapes, default_shape, group=group, when=has_gradient,
+               doc=doc),
+        angle(f"{key}_angle", 180.0, group=group,
+              when=lambda v: has_gradient(v) and v.get(f"{key}_shape") == "linear",
               doc="Which way the gradient runs, in degrees: 0 bottom to top, 90 "
                   "left to right, 180 top to bottom, 270 right to left"),
     ]

@@ -29,7 +29,7 @@ width = 318
 height = 160
 source = "network"
 max = 12500000      # 100 Mbit
-gradient = [
+line_color = [
     "#11e3f5",   # up
     "#66f0ff",
 ]
@@ -75,15 +75,15 @@ def test_set_new_key_goes_after_last(doc: ThemeDocument) -> None:
 
 
 def test_multiline_value_replaced_whole(doc: ThemeDocument) -> None:
-    doc.set(Ref("graph", 1), "gradient", ["#000000"])
-    assert 'gradient = ["#000000"]' in doc.text
+    doc.set(Ref("graph", 1), "line_color", ["#000000"])
+    assert 'line_color = ["#000000"]' in doc.text
     assert "# up" not in doc.text
     assert doc.entry(Ref("graph", 1))["cava"] == {"general": {"autosens": 1}}
 
 
 def test_remove_key(doc: ThemeDocument) -> None:
-    doc.set(Ref("graph", 1), "gradient", None)
-    assert "gradient" not in doc.entry(Ref("graph", 1))
+    doc.set(Ref("graph", 1), "line_color", None)
+    assert "line_color" not in doc.entry(Ref("graph", 1))
     assert '"#66f0ff"' not in doc.text
     doc.set(Ref("label", 2), "quoted key", None)
     assert "quoted key" not in doc.text

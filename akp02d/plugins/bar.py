@@ -19,6 +19,7 @@ from ..schema import (
     Auto, Schema, choice, color, colors, font, integer, number, source, string,
     text_format,
 )
+from ..textfx import READING_SHAPES, gradient_options
 from .base import PluginError, Widget, WidgetSpec, register
 
 if TYPE_CHECKING:
@@ -51,10 +52,10 @@ class BarWidget(Widget):
                Auto(lambda v, spec: "horizontal" if spec.rect.width >= spec.rect.height
                     else "vertical", "horizontal for a wide box, vertical for a tall one"),
                group="Bar"),
-        choice("color_by", ("position", "level"), "position", group="Bar",
-               doc="position: the gradient is fixed along the bar; level: the "
-                   "fill takes one colour by how full it is"),
-        colors("gradient", ("#22dd66", "#ffd022", "#ff3b30"), group="Bar"),
+        colors("fill", ("#22dd66", "#ffd022", "#ff3b30"), group="Bar",
+               doc="The filled part: one colour, or several for a gradient"),
+        *gradient_options("fill", group="Bar", subject="the bar",
+                          shapes=READING_SHAPES, default_shape="scale"),
         color("track", "#0a3c46", group="Bar", doc="The empty part of the bar"),
         integer("radius", 0, 0, 256, group="Bar",
                 doc="Corner rounding in pixels; half the bar's thickness "
@@ -74,7 +75,7 @@ class BarWidget(Widget):
         integer("size", 16, 1, 512, group="Text"),
     )
 
-    __slots__ = ("_bar", "_by_level", "_cells", "_draw", "_fill_image", "_font",
+    __slots__ = ("_bar", "_cells", "_draw", "_fill_image", "_font",
                  "_format", "_label", "_label_fill", "_last", "_length", "_lut",
                  "_mask", "_mask_draw", "_radius", "_range", "_source", "_text_at",
                  "_text_fill", "_text_mode", "_vertical")
@@ -91,8 +92,7 @@ class BarWidget(Widget):
         self._format = o.format
         self._label = o.label
         self._vertical = o.direction == "vertical"
-        self._by_level = o.color_by == "level"
-        self._lut = gradient.lut(o.gradient)
+        self._lut = gradient.lut(o.fill)
         self._label_fill = o.label_color
         self._text_fill = o.color
         self._font = theme.font(o.font, o.size)
@@ -150,8 +150,14 @@ class BarWidget(Widget):
             self._shape(track_draw, box, o.track)
         self.surface.paste(self.backdrop)
 
-        # The fill colour field: the gradient along the bar, built once.
-        if not self._by_level:
+        # The fill's colours, built once: along the bar, or across it. By
+        # level there is none; the fill takes one colour as it changes.
+        shape = o.fill_shape if len(o.fill) > 1 else "scale"
+        if shape in gradient.SHAPES:
+            self._fill_image = Image.new("RGB", (width, height))
+            self._fill_image.paste(gradient.paint(tuple(o.fill), (bar_w, bar_h),
+                                                  o.fill_angle, shape), (0, top))
+        elif shape == "scale":
             strip_len = self._length
             positions = [min(255, i * 255 // max(strip_len - 1, 1)) for i in range(strip_len)]
             if self._vertical:

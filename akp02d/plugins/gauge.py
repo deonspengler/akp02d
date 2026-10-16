@@ -26,6 +26,7 @@ from ..schema import (
     Auto, Schema, boolean, choice, color, colors, font, integer, number, source,
     string, text_format, zones,
 )
+from ..textfx import READING_SHAPES, gradient_options
 from .base import PluginError, Widget, WidgetSpec, register
 
 if TYPE_CHECKING:
@@ -114,10 +115,10 @@ class GaugeWidget(Widget):
                doc="Seconds the needle (or arc) takes to swing to a new "
                    "reading; 0 jumps. Redraws while it moves"),
         # -- arc --
-        choice("color_by", ("position", "level"), "level", group="Arc", when=_is_arc,
-               doc="level: one colour picked by the value; position: the "
-                   "ramp runs round the arc"),
-        colors("gradient", ("#22dd66", "#ffd022", "#ff3b30"), group="Arc", when=_is_arc),
+        colors("fill", ("#22dd66", "#ffd022", "#ff3b30"), group="Arc", when=_is_arc,
+               doc="The filled part of the arc: one colour, or several for a gradient"),
+        *gradient_options("fill", group="Arc", subject="the gauge", shapes=READING_SHAPES,
+                          default_shape="level", when=_is_arc),
         color("track", "#0a3c46", group="Arc", when=_is_arc,
               doc="The unfilled part of the arc"),
         integer("thickness", 12, 1, 128, group="Arc", when=_is_arc),
@@ -148,9 +149,9 @@ class GaugeWidget(Widget):
                      "scaled to the gauge"), 4, 256,
                 group="Scale", when=lambda v: _has_ticks(v) and bool(v.get("numbers"))),
         # -- the needle --
-        colors("needle_color", _per(lambda v, s: _hexes(v.get("gradient")), ("#ff483c",),
+        colors("needle_color", _per(lambda v, s: _hexes(v.get("fill")), ("#ff483c",),
                                     ("#1a1714",),
-                                    "the arc's gradient; red on a dial; black on meter"),
+                                    "the arc's fill; red on a dial; black on meter"),
                group="Needle", when=_has_needle,
                doc="One colour, or several: the needle takes the colour for "
                    "the value it points at"),
@@ -191,11 +192,11 @@ class GaugeWidget(Widget):
                 doc="Size of the value text"),
     )
 
-    __slots__ = ("_by_level", "_centre", "_colours", "_ring", "_round_tip", "_draw", "_fill", "_font", "_format",
+    __slots__ = ("_centre", "_colours", "_ring", "_round_tip", "_draw", "_font", "_format",
                  "_glide", "_hub", "_hub_fill", "_label", "_label_fill", "_label_font",
                  "_label_xy", "_last", "_last_time", "_lut", "_needle", "_needle_lut",
                  "_next_read", "_radius", "_range", "_read_period", "_shadow", "_shown",
-                 "_source", "_start", "_style", "_sweep", "_target", "_text_now",
+                 "_source", "_start", "_style", "_sweep", "_target", "_text_fill", "_text_now",
                  "_thickness", "_track", "_value_xy", "animating")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
@@ -216,14 +217,13 @@ class GaugeWidget(Widget):
         # the bottom. A meter's pivot is below its scale, so it stays so.
         centre = 90.0 if o.start == "top" and o.style != "meter" else 270.0
         self._start = centre - self._sweep / 2
-        self._by_level = o.color_by == "level"
-        self._lut = gradient.lut(o.gradient)
+        self._lut = gradient.lut(o.fill)
         self._track = o.track
         self._thickness = o.thickness
         self._label = o.label
         self._format = o.format
         self._label_fill = o.label_color
-        self._fill = o.color
+        self._text_fill = o.color
         self._label_font = theme.font(o.font, o.label_size)
         self._font = theme.font(o.font, o.size)
         options.reject_unknown()
@@ -242,7 +242,13 @@ class GaugeWidget(Widget):
             pad = self._thickness // 2 + 1
             self._ring = _ring((width, height), (width / 2 - pad, height / 2 - pad),
                                self._thickness, self._start, self._sweep, o.caps == "round")
-            self._colours = None if self._by_level else self._ring.coloured(self._lut)
+            # The fill's colours, made once: round the arc, or across the
+            # box. By level there are none; it takes one colour as it moves.
+            shape = o.fill_shape if len(o.fill) > 1 else "level"
+            self._colours = (
+                self._ring.coloured(self._lut) if shape == "scale"
+                else gradient.paint(tuple(o.fill), (width, height), o.fill_angle, shape)
+                if shape in gradient.SHAPES else None)
             self._round_tip = o.tip == "round"
             self._centre = (width / 2 - 0.5, height / 2 - 0.5)
             # The inner edge of the arc's stroke: ticks and needle sit inside it.
@@ -451,7 +457,7 @@ class GaugeWidget(Widget):
         text = self._text_now
         if text:
             anchor = "ma" if self._style == "arc" else "mm"
-            self._draw.text(self._value_xy, text, font=self._font, fill=self._fill,
+            self._draw.text(self._value_xy, text, font=self._font, fill=self._text_fill,
                             anchor=anchor)
         return True
 
