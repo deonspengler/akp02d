@@ -1,25 +1,21 @@
 # akp02d
 
+[![AUR](https://img.shields.io/aur/version/akp02d)](https://aur.archlinux.org/packages/akp02d)
+[![PyPI](https://img.shields.io/pypi/v/akp02d)](https://pypi.org/project/akp02d/)
+[![Python](https://img.shields.io/pypi/pyversions/akp02d)](https://pypi.org/project/akp02d/)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
+
 Turns the Ajazz AKP02 panel into a live system display: clock, CPU,
 memory, disk, network, temperatures, an audio visualiser, what's
 playing and more, in themes you design with a drag-and-drop editor.
 
-<img src="https://raw.githubusercontent.com/deonspengler/akp02d/main/docs/panel.png" width="260" alt="The panel showing a clock, memory and disk gauges, network and CPU graphs, and an audio visualiser over a wallpaper">
+<img src="https://raw.githubusercontent.com/deonspengler/akp02d/main/docs/editor.png" width="800" alt="The akp02d theme editor: layers, a live preview of the panel, and the selected widget's settings">
 
 ## Install
 
 From the AUR ([akp02d](https://aur.archlinux.org/packages/akp02d)):
 
     yay -S akp02d
-
-It brings `cava` for the audio visualiser. Optional, for the features
-that use them:
-
-| package | for |
-|---|---|
-| `pyside6` | the theme editor, `akp02d-edit` |
-| `playerctl` | what's playing, and cover art |
-| `libpulse` | the volume level (works with PipeWire too) |
 
 ### Other distributions
 
