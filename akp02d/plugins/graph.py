@@ -240,8 +240,7 @@ class GraphWidget(Widget):
                 if self._fill_alpha < 1.0:
                     # A mask is a per-pixel blend, not just a stencil, so
                     # scaling it down blends the fill with the backdrop.
-                    scale = self._fill_alpha
-                    mask = mask.point(lambda value: int(value * scale))
+                    mask = mask.point(lambda value, k=self._fill_alpha: int(value * k))
                 self.surface.paste(self._fill, (0, 0), mask)
             self._line_draw.rectangle((0, 0, width - 1, height - 1), fill=0)
             if len(points) > 1:

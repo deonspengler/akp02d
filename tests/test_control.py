@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import stat
 import threading
 import time
@@ -13,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from akp02d import config, control, ctl, paths, theme as theme_module
+from akp02d import config, control, paths, theme as theme_module
 from akp02d.__main__ import main
 from akp02d.app import App
 
@@ -166,7 +165,7 @@ def test_switch_theme_and_back(daemon) -> None:
     # The loop picked up the new widgets.
     time.sleep(0.3)
     assert [w.id for w in daemon.widgets] == ["label#1"]
-    assert not config.load().theme == "neon"              # not saved unless asked
+    assert config.load().theme != "neon"              # not saved unless asked
 
 
 def test_a_broken_theme_changes_nothing(daemon) -> None:

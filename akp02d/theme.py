@@ -43,7 +43,7 @@ from PIL import Image, ImageFont
 from . import gradient
 from .layout import Rect, screen_size
 from .plugins.base import WidgetSpec
-from .table import REQUIRED, SettingsError, Table, parse_color
+from .table import REQUIRED, SettingsError, Table
 
 log = logging.getLogger(__name__)
 

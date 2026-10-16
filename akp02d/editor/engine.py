@@ -100,7 +100,6 @@ class Engine:
         self.screen: Image.Image | None = None
         self._theme_key: tuple | None = None
         self._locales: tuple = ()
-        self._entries: dict[Ref, dict[str, Any]] = {}
 
     # -- building --
 
@@ -143,7 +142,6 @@ class Engine:
 
         refs = document.refs()
         entries = {ref: document.entry(ref) for ref in refs}
-        self._entries = entries
         locales = tuple(
             entry.get("locale") for ref, entry in entries.items() if ref.plugin == "label"
         )
@@ -181,18 +179,6 @@ class Engine:
         for leftover in old.values():
             _close(leftover)
         self.slots = new_slots
-        self._composite()
-
-    def rebuild(self, slot_id: str | None = None) -> None:
-        """Rebuild one widget (or all) from its current entry."""
-        for index, slot in enumerate(self.slots):
-            if slot_id is not None and slot.id != slot_id:
-                continue
-            _close(slot)
-            entry = self._entries.get(slot.ref)
-            if entry is None:
-                continue
-            self.slots[index] = self._build(slot.ref, entry, slot.key)
         self._composite()
 
     def _build(self, ref: Ref, entry: dict[str, Any], key: tuple) -> Slot:

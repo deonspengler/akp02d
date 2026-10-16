@@ -169,7 +169,6 @@ class Inspector(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._refresh_samples)
         self._timer.start(500)
-        self._context: tuple = ()
 
     # -- building --
 

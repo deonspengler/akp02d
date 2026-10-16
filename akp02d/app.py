@@ -413,11 +413,8 @@ class App:
                     )
 
             if box is not None:
-                # Grow the box until its offset is one the panel renders
-                # in true colour. Outward only, and the extra pixels are
-                # already in the composite, so it costs bytes and nothing
-                # else.
-                #box = layout.snap(box, orientation, inverted)
+                # Already colour-safe: every widget's box is (validated at
+                # load), and so is any box covering only such boxes.
                 mark = counter()
                 jpeg = panel.encode_region(screen.crop(box))
                 stats.encode_sec += counter() - mark

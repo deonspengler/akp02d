@@ -337,7 +337,6 @@ class GaugeWidget(Widget):
         """The backdrop with everything that does not move drawn on it."""
         face = self.backdrop.copy()
         width, height = face.size
-        draw = ImageDraw.Draw(face)
         start, sweep = self._start, self._sweep
         if self._style == "arc":
             ring = self._ring

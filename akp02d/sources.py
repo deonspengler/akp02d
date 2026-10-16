@@ -687,7 +687,7 @@ def _temperature_file(sensor: str | None, label: str | None) -> tuple[str, str, 
 def sensor_choices() -> list[tuple[str, str]]:
     """Each temperature chip once, with its main reading now."""
     out: dict[str, str] = {}
-    for chip, label, file in _temperature_sensors():
+    for chip, _label, _file in _temperature_sensors():
         if chip in out:
             continue
         main = _temperature_file(chip, None)

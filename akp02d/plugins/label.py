@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING
 
 from .. import sources, textfx
 from ..schema import (
-    Auto, Schema, choice, color, font, integer, source, string, text_format,
+    Auto, Schema, choice, font, integer, source, string, text_format,
 )
 from .base import PluginError, Widget, WidgetSpec, register
 

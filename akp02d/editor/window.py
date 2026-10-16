@@ -23,8 +23,8 @@ from PySide6.QtGui import (
     QAction, QCloseEvent, QColor, QDrag, QImage, QKeySequence, QUndoCommand, QUndoStack,
 )
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
-    QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter, QToolBar, QToolButton,
+    QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
+    QMessageBox, QPushButton, QSizePolicy, QSplitter, QToolBar, QToolButton,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -168,7 +168,7 @@ class EditorWindow(QMainWindow):
         self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self._tick)
         self.timer.start(round(1000 / Engine.LOOP_FPS))
-        self.refresh(select_first=False)
+        self.refresh()
         self.theme_list.set_open(document.directory)
         QTimer.singleShot(0, self.canvas.fit)
 
@@ -425,7 +425,7 @@ class EditorWindow(QMainWindow):
         self.document._set_text(text)
         self.refresh()
 
-    def refresh(self, select_first: bool = False) -> None:
+    def refresh(self) -> None:
         """Bring everything on screen in line with the document."""
         doc = self.document
         self.engine.load(doc)
@@ -437,7 +437,7 @@ class EditorWindow(QMainWindow):
         self._update_boxes()
         self._update_layers()
         self._update_inspector()
-        self._update_frame(force=True)
+        self._update_frame()
         self._update_title()
         width, height = self.engine.size
         self.status_shape.setText(
@@ -541,7 +541,7 @@ class EditorWindow(QMainWindow):
         else:
             self.inspector.show_summary(self.document, self.problems, count)
 
-    def _update_frame(self, force: bool = False) -> None:
+    def _update_frame(self) -> None:
         if self.engine.screen is None:
             return
         self.canvas.set_frame(to_qimage(self.engine.screen))
