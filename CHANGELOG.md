@@ -2,7 +2,7 @@
 
 ## 1.0.0 (2026-10-16)
 
-First release.
+First release. Requires Python 3.13 or newer.
 
 ### Daemon
 

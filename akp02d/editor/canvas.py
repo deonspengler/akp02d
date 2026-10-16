@@ -431,9 +431,7 @@ class Canvas(QGraphicsView):
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
         painter.fillRect(rect, QColor(style.CANVAS))
         # A faint dot grid, in view space so it does not scale: one tiled
-        # texture. (Not thousands of drawPoint calls -- slower, and on
-        # Python 3.11 PySide6's drawPoint(int, int) leaks a reference to
-        # None until the interpreter aborts.)
+        # texture rather than thousands of drawPoint calls.
         painter.save()
         painter.resetTransform()
         painter.fillRect(self.viewport().rect(), _dot_grid())
