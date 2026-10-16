@@ -34,7 +34,6 @@ test = ["pytest>=7"]
 [project.urls]
 Homepage = "https://github.com/deonspengler/akp02d"
 Issues = "https://github.com/deonspengler/akp02d/issues"
-Changelog = "https://github.com/deonspengler/akp02d/blob/main/CHANGELOG.md"
 
 [project.scripts]
 akp02d = "akp02d.__main__:main"
@@ -49,7 +48,7 @@ path = "akp02d/__init__.py"
 packages = ["akp02d"]
 
 [tool.hatch.build.targets.sdist]
-include = ["akp02d", "tests", "contrib", "docs", "README.md", "CHANGELOG.md", "LICENSE"]
+include = ["akp02d", "tests", "docs", "README.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
