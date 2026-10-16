@@ -1,0 +1,24 @@
+pkgbase = akp02d
+	pkgdesc = Themed system stats display for the Ajazz AKP02 panel, with a live theme editor
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/deonspengler/akp02d
+	arch = any
+	license = GPL-3.0-or-later
+	checkdepends = python-pytest
+	checkdepends = pyside6
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	makedepends = python-wheel
+	depends = python>=3.13
+	depends = python-akp02>=2.0.0
+	depends = python-pillow
+	depends = cava
+	optdepends = pyside6: the theme editor, akp02d-edit
+	optdepends = playerctl: the now_playing source and cover art
+	optdepends = libpulse: the volume source (pactl; works with PipeWire too)
+	source = akp02d-1.0.0.tar.gz::https://github.com/deonspengler/akp02d/archive/refs/tags/v1.0.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = akp02d

@@ -1,0 +1,26 @@
+# Maintainer: Deon Spengler <deon@spengler.co.za>
+pkgname=python-akp02
+_name=akp02
+pkgver=2.0.0
+pkgrel=1
+pkgdesc="Driver library for the Ajazz AKP02 USB display panel"
+arch=('any')
+url="https://github.com/deonspengler/akp02"
+license=('MPL-2.0')
+depends=('python' 'python-hidapi' 'python-pillow')
+makedepends=('python-build' 'python-installer' 'python-hatchling' 'python-wheel')
+source=("https://files.pythonhosted.org/packages/source/${_name::1}/${_name}/${_name}-${pkgver}.tar.gz")
+sha256sums=('6b9d603b1374d6109ae39427b02830e7466da8c285a4bd5ee465c0f8cda071e0')
+
+build() {
+  cd "${_name}-${pkgver}"
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "${_name}-${pkgver}"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  # Lets the logged-in user open the panel without root.
+  install -Dm644 udev/99-akp02.rules "$pkgdir/usr/lib/udev/rules.d/99-akp02.rules"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

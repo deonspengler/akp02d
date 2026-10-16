@@ -57,8 +57,8 @@ Settings for this machine, such as brightness and an upside-down panel
     akp02d --check                 # checks the settings and theme, and says what is wrong
     journalctl --user -u akp02d    # the service's log
 
-If akp02d cannot open the panel, your user needs access to it: see
-[akp02](https://github.com/deonspengler/akp02) for the udev rule.
+If akp02d cannot open the panel, unplug it and plug it back in: the
+access rule installed with akp02d applies to newly connected devices.
 
 ## Licence
 
