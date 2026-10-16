@@ -168,7 +168,7 @@ def output(text: str) -> dict[str, str]:
 
 def test_the_four_channel_choices(monkeypatch) -> None:
     assert output(cava_text(monkeypatch, {}))["channels"] == "stereo"
-    for choice, mono in (("both", "average"), ("left", "left"), ("right", "right")):
+    for choice, mono in (("mono", "average"), ("left", "left"), ("right", "right")):
         out = output(cava_text(monkeypatch, {"channels": choice}))
         assert out["channels"] == "mono" and out["mono_option"] == mono
 
@@ -181,12 +181,13 @@ def test_an_older_mono_theme_still_loads(monkeypatch) -> None:
     schema = lookup("spectrum").schema
     shown = schema.effective({"channels": "mono", "mono_option": "left"})
     assert shown.channels == "left"                  # what the editor shows
-    assert "mono" not in schema["channels"].choices  # and never offers
+    assert "both" not in schema["channels"].choices  # and never offers
+    assert schema.effective({"channels": "both"}).channels == "mono"   # the name for a day
 
 
 def test_an_unknown_channel_is_refused(monkeypatch) -> None:
     import pytest
     from akp02d.table import SettingsError
 
-    with pytest.raises(SettingsError, match="stereo, both, left, right"):
+    with pytest.raises(SettingsError, match="stereo, mono, left, right"):
         cava_text(monkeypatch, {"channels": "middle"})

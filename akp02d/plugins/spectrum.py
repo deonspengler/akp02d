@@ -8,7 +8,7 @@
     fps = 30
     type = "bars"                                 # bars|mirrored|segmented|radial
     bars = 32
-    channels = "stereo"                           # stereo | both | left | right
+    channels = "stereo"                           # stereo | mono | left | right
     smoothing = 30                                # 0 twitchy, 100 sluggish
     input = "pulse"                               # cava input method
     source = "auto"                               # what that method captures
@@ -126,14 +126,15 @@ class Sweep:
 # What the panel shows, and how each is asked of cava: stereo is cava's
 # own; the other three are its mono, from both channels mixed or from
 # one of them.
-CHANNELS = ("stereo", "both", "left", "right")
-_MONO = {"both": "average", "left": "left", "right": "right"}
+CHANNELS = ("stereo", "mono", "left", "right")
+_MONO = {"mono": "average", "left": "left", "right": "right"}
 
 
 def _from_mono(peek) -> str:
-    """An older theme's channels = "mono", with its mono_option."""
+    """channels = "mono" as an older theme meant it: with a mono_option
+    of left or right, that channel alone."""
     option = peek("mono_option")
-    return {"left": "left", "right": "right"}.get(option, "both")
+    return {"left": "left", "right": "right"}.get(option, "mono")
 
 
 @register("spectrum")
@@ -153,9 +154,9 @@ class SpectrumWidget(Widget):
         integer("bars", 32, 1, 512, group="Shape",
                 doc="Number of bars; must be even in stereo"),
         choice("channels", CHANNELS, "stereo", group="Audio",
-               legacy={"mono": _from_mono},
+               legacy={"mono": _from_mono, "both": "mono"}, replaces=("mono_option",),
                doc="stereo: both channels, mirrored, lows in the middle; "
-                   "both: the two mixed into one; left or right: that one alone"),
+                   "mono: the two mixed into one; left or right: that one alone"),
         # What a "mono" theme said which channel to use, before channels
         # said it itself. Read so such a theme still loads; never shown.
         string("mono_option", None, group="Audio", when=lambda v: False),

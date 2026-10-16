@@ -132,6 +132,10 @@ class Option:
     # other values (`peek(key)`) that picks one. Tools show the mapped
     # choice; the old value is never offered.
     legacy: Mapping[str, Any] = field(default_factory=dict)
+    # Keys an older theme used to say what this option now says. A tool
+    # setting this option removes them, so they cannot pull the reading
+    # back to what they meant.
+    replaces: tuple[str, ...] = ()
 
     @property
     def required(self) -> bool:
