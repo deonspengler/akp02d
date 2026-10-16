@@ -183,3 +183,14 @@ def test_fit_ellipsis_and_shrink() -> None:
     # Text that fits is left alone in every mode.
     for mode in ("clip", "ellipsis", "shrink"):
         assert label(mode, "Hi")._fitted("Hi")[0] == "Hi"
+
+
+def test_only_labels_and_images_take_it(playerctl) -> None:
+    from akp02d.plugins import lookup
+    from akp02d.schema import SOURCE
+
+    cls = sources.lookup("now_playing")
+    for plugin, takes in (("label", True), ("image", True),
+                          ("bar", False), ("gauge", False), ("graph", False)):
+        option = next(o for o in lookup(plugin).schema if o.kind == SOURCE)
+        assert sources.fits(cls, option.accepts) is takes, plugin

@@ -168,7 +168,7 @@ def test_text_sources_read(name: str) -> None:
 def test_text_sources_on_a_label_not_a_gauge() -> None:
     label = build("label", {"source": "hostname", "format": "{short}"})
     assert label.render(0.0)
-    with pytest.raises(sources.SourceError, match="produces a text"):
+    with pytest.raises(sources.SourceError, match="gives text, but this widget shows"):
         build("gauge", {"source": "kernel"}, Rect(0, 0, 160, 160))
 
 

@@ -31,6 +31,8 @@ SCALAR, TEXT, MOMENT, PAIR = "scalar", "text", "moment", "pair"
 # Not a kind of its own: what a widget that shows pictures accepts. Any
 # source whose fields include an `art` picture (see `pictures`) fits.
 PICTURE = "picture"
+_KIND_WORDS = {SCALAR: "a number", TEXT: "text", MOMENT: "a time", PAIR: "a pair of rates",
+               PICTURE: "a picture"}
 
 
 class SourceError(SettingsError):
@@ -441,15 +443,15 @@ def _interface_address(name: str) -> str | None:
 
 
 class NowPlayingSource(Source):
-    """What a media player is playing, via playerctl.
+    """What a media player is playing, via playerctl: text for labels,
+    and the cover art for an image.
 
     Every widget following the same player shares one playerctl process
-    (see media.py), so a title, an artist and a progress bar cost one
-    child between them. `value` is the track's progress, 0..1, for a bar
-    or gauge; the rest are fields for labels.
+    (see media.py), so a title, an artist and a cover cost one child
+    between them.
     """
 
-    kind = SCALAR
+    kind = TEXT
     schema = Schema(
         string("player", None, group="Data",
                doc="Which player to follow, e.g. spotify, mpv, firefox; empty "
@@ -490,8 +492,7 @@ class NowPlayingSource(Source):
         if self._stream is None and self._may_start():
             self._stream = media.acquire(self._player)
         track = self._stream.read(now) if self._stream is not None else media.Track(at=now)
-        fields = now_playing_fields(track, now, self._idle)
-        return fields["value"], fields
+        return None, now_playing_fields(track, now, self._idle)
 
     def close(self) -> None:
         if self._stream is not None:
@@ -850,8 +851,8 @@ def resolve(options: Table, widget: str, accepts: tuple[str, ...]) -> Source | N
     source = create(name, options, widget)
     if not fits(source, accepts):
         raise SourceError(
-            f"widget {widget!r}: source {name!r} produces a {source.kind}, "
-            f"but this widget needs {' or a '.join(accepts)}"
+            f"widget {widget!r}: source {name!r} gives {_KIND_WORDS.get(source.kind, source.kind)}, "
+            f"but this widget shows {' or '.join(_KIND_WORDS.get(k, k) for k in accepts)}"
         )
     return source
 

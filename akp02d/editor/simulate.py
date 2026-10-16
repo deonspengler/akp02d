@@ -156,8 +156,7 @@ class StandIn:
             track = media.Track(status="Playing", player="simulated", artist=artist,
                                 title=title, album=album, length=float(length),
                                 position=at, at=now, art=_cover(index), volume=0.7)
-            fields = sources.now_playing_fields(track, now, getattr(self.real, "_idle", ""))
-            return fields["value"], fields
+            return None, sources.now_playing_fields(track, now, getattr(self.real, "_idle", ""))
         if name == "volume":
             # Set in 5% steps, as volume keys do, wandering slowly, and
             # muted for a few seconds every half minute.
