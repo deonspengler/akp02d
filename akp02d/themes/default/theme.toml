@@ -6,7 +6,7 @@ font = "LiberationMono-Regular.ttf"
 [[widget.label]]
 x = 8
 y = 0
-width = 170
+width = 195
 height = 50
 fps = 0.1
 source = "hostname"
@@ -14,6 +14,7 @@ format = "{short}"
 size = 32
 fit = "shrink"
 color = "#ffffff"
+id = "hostname"
 
 [[widget.label]]
 x = 80
@@ -25,6 +26,7 @@ format = "{value:%H:%M:%S}"
 size = 56
 color = "#11E3F5"
 font = "LiberationMono-Bold.ttf"
+id = "time"
 
 [[widget.label]]
 x = 96
@@ -36,6 +38,7 @@ format = "{value:%a, %d %b %Y}"
 size = 28
 color = "#ffffff"
 font = "LiberationMono-Bold.ttf"
+id = "date"
 
 [[widget.gauge]]
 x = 56
@@ -50,6 +53,7 @@ label_size = 24
 size = 14
 fill = ["#22dd66", "#ffd022", "#ff3b30"]
 fill_shape = "scale"
+id = "memory"
 
 [[widget.gauge]]
 x = 248
@@ -65,6 +69,7 @@ label_size = 22
 size = 13
 fill = ["#22dd66", "#ffd022", "#ff3b30"]
 fill_shape = "scale"
+id = "disk"
 
 [[widget.label]]
 x = 152
@@ -74,6 +79,7 @@ height = 40
 format = "NETWORK"
 size = 32
 color = "#ffffff"
+id = "label#1"
 
 [[widget.graph]]
 x = 72
@@ -82,16 +88,16 @@ width = 318
 height = 160
 fps = 5
 source = "network"
-# interface = "eno1"            # one interface; without it, all but loopback
-scale = "log"                   # log, linear
-min = 1024                      # 1 KB/s reads as nothing
+scale = "log"
+min = 1024
 max = 12500000
-origin = "#46506e"              # the centre line
-line_color = ["#11e3f5", "#66f0ff"]        # upload, above
-line_color_down = ["#fd44dd", "#ff99ee"]   # download, below
+origin = "#46506e"
+line_color = ["#11e3f5", "#66f0ff"]
+line_color_down = ["#fd44dd", "#ff99ee"]
 fill = "#18243c"
 fill_alpha = 0.45
 points = 75
+id = "network"
 
 [[widget.label]]
 x = 152
@@ -101,6 +107,7 @@ height = 40
 format = "CPU"
 size = 32
 color = "#ffffff"
+id = "label#2"
 
 [[widget.graph]]
 x = 72
@@ -113,6 +120,7 @@ line_color = ["#11e3f5", "#fd44dd"]
 fill = "#18243c"
 fill_alpha = 0.5
 points = 75
+id = "cpu"
 
 [[widget.spectrum]]
 x = 72
@@ -120,7 +128,7 @@ y = 772
 width = 318
 height = 318
 fps = 30
-type = "radial" # radial, segmented, mirrored, bars
+type = "radial"
 inner = 0.3
 reverse = false
 peaks = true
@@ -132,3 +140,4 @@ origin_width = 2
 channels = "stereo"
 color = ["#FD44DD", "#11E3F5"]
 smoothing = 30
+id = "audio"
