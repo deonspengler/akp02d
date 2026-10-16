@@ -127,10 +127,10 @@ def test_changing_source_drops_a_format_that_no_longer_fits(app, tmp_path: Path)
     window = _window(app, tmp_path)
     try:
         # Fixed text ignores a source: dropped, so the source's default shows.
-        window._widget_edited(Ref("label", 1), "source", "hostname")
+        window._widget_edited(Ref("label", 4), "source", "hostname")
         pump(app, 0.2)
-        assert "format" not in window.document.entry(Ref("label", 1))
-        slot = next(s for s in window.engine.slots if s.id == "label#1")
+        assert "format" not in window.document.entry(Ref("label", 4))
+        slot = next(s for s in window.engine.slots if s.id == "label#4")
         assert slot.widget.text(0.0) == __import__("socket").gethostname().split(".")[0]
         # Fields the new source lacks: dropped. One undo restores both keys.
         window._widget_edited(Ref("gauge", 1), "source", "temperature")

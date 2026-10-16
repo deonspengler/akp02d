@@ -24,7 +24,9 @@ log = logging.getLogger("akp02d")
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="akp02d", description="Themed system stats on an Ajazz AKP02 panel."
+        prog="akp02d", description="Themed system stats on an Ajazz AKP02 panel.",
+        epilog="Control a running daemon with `akp02d ctl` (see akp02d ctl --help); "
+               "edit themes with akp02d-edit.",
     )
     parser.add_argument("-c", "--config", type=Path, help="path to akp02d.toml")
     parser.add_argument("-t", "--theme", help="theme name or directory, overrides config")
