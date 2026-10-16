@@ -41,6 +41,15 @@ def main(argv: list[str] | None = None) -> int:
               "distribution's PySide6 package (pyside6 on Arch) -- for "
               "this Python.", file=sys.stderr)
         return 1
+    import PySide6
+
+    if sys.version_info < (3, 12) and PySide6.__version__.startswith("6.12."):
+        # PySide6 6.12 loses a reference to None on most calls under
+        # Python 3.11, until the interpreter aborts.
+        print(f"akp02d-edit: PySide6 {PySide6.__version__} crashes on Python "
+              f"{sys.version.split()[0]} after a while. Use PySide6 6.11 "
+              "(pip install 'PySide6-Essentials<6.12') or Python 3.12+.",
+              file=sys.stderr)
 
     # A bug in one handler should cost that action, not the theme being
     # edited: log an exception escaping a Qt callback and carry on, as an

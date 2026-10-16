@@ -5,7 +5,7 @@ graphs, an audio spectrum, cover art and more, drawn from a theme file
 you can edit by hand or in the live theme editor. Built on the
 [`akp02`](https://github.com/deonspengler/akp02) library.
 
-<img src="docs/panel.png" width="260" alt="The panel showing a clock, memory and disk gauges, network and CPU graphs, and an audio spectrum over a wallpaper">
+<img src="https://raw.githubusercontent.com/deonspengler/akp02d/main/docs/panel.png" width="260" alt="The panel showing a clock, memory and disk gauges, network and CPU graphs, and an audio spectrum over a wallpaper">
 
 ## Install
 
@@ -15,6 +15,8 @@ Linux and Python 3.11 or newer.
     pip install 'akp02d[editor]'     # ... and the theme editor (PySide6)
 
 or from this repository: `pip install 'akp02d[editor] @ git+https://github.com/deonspengler/akp02d'`.
+On Python 3.11 the editor needs PySide6 older than 6.12 (6.12 crashes
+there); the `editor` extra picks one.
 
 Your user needs access to the panel's hidraw device; see
 [akp02](https://github.com/deonspengler/akp02) for the udev rule. A few

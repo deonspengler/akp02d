@@ -430,14 +430,13 @@ class Canvas(QGraphicsView):
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
         painter.fillRect(rect, QColor(style.CANVAS))
-        # A faint dot grid, in view space so it does not scale.
+        # A faint dot grid, in view space so it does not scale: one tiled
+        # texture. (Not thousands of drawPoint calls -- slower, and on
+        # Python 3.11 PySide6's drawPoint(int, int) leaks a reference to
+        # None until the interpreter aborts.)
         painter.save()
         painter.resetTransform()
-        view = self.viewport().rect()
-        painter.setPen(QPen(QColor("#22262e"), 1))
-        for x in range(0, view.width(), 16):
-            for y in range(0, view.height(), 16):
-                painter.drawPoint(x, y)
+        painter.fillRect(self.viewport().rect(), _dot_grid())
         painter.restore()
         width, height = self.screen
         painter.setPen(Qt.PenStyle.NoPen)
@@ -570,6 +569,22 @@ class Canvas(QGraphicsView):
         top_left = self.mapFromScene(QPointF(rect.x, rect.y))
         bottom_right = self.mapFromScene(QPointF(rect.x + rect.width, rect.y + rect.height))
         return QRect(top_left, bottom_right - QPoint(1, 1)).adjusted(0, 0, 1, 1)
+
+
+_GRID: QBrush | None = None
+
+
+def _dot_grid() -> QBrush:
+    """A brush tiling one faint dot every 16 pixels."""
+    global _GRID
+    if _GRID is None:
+        tile = QPixmap(16, 16)
+        tile.fill(QColor(style.CANVAS))
+        dot = QPainter(tile)
+        dot.fillRect(0, 0, 1, 1, QColor("#22262e"))
+        dot.end()
+        _GRID = QBrush(tile)
+    return _GRID
 
 
 @dataclass(slots=True)
