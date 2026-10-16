@@ -52,6 +52,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="put a theme that ships with akp02d back as it shipped (yours is "
              "kept as NAME.bak), then exit",
     )
+    parser.add_argument(
+        "--udev-rule", action="store_true",
+        help="print the path of the udev rule that lets you open the panel "
+             "without root, then exit",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0)
     parser.add_argument("--version", action="version", version=f"akp02d {__version__}")
     return parser.parse_args(argv)
@@ -62,6 +67,12 @@ def main(argv: list[str] | None = None) -> int:
     if argv[:1] == ["ctl"]:
         return ctl.main(argv[1:])
     args = parse_args(argv)
+    if args.udev_rule:
+        # Shipped inside the akp02 package, wherever pip or pipx put it.
+        from importlib.resources import files
+
+        print(files("akp02") / "udev" / "99-akp02.rules")
+        return 0
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(message)s",

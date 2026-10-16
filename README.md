@@ -12,14 +12,44 @@ From the AUR ([akp02d](https://aur.archlinux.org/packages/akp02d)):
 
     yay -S akp02d
 
-Optional, for the features that use them:
+It brings `cava` for the audio visualiser. Optional, for the features
+that use them:
 
 | package | for |
 |---|---|
 | `pyside6` | the theme editor, `akp02d-edit` |
-| `cava` | the audio visualiser |
 | `playerctl` | what's playing, and cover art |
 | `libpulse` | the volume level (works with PipeWire too) |
+
+### Other distributions
+
+With [pipx](https://pipx.pypa.io) and Python 3.13 or newer (add
+`--python 3.13` if your system Python is older):
+
+    pipx install 'akp02d[editor]'
+
+Then install `cava` from your distribution (and `playerctl` and
+`pactl` if you want them), and let your user open the panel:
+
+    sudo cp "$(akp02d --udev-rule)" /etc/udev/rules.d/
+    sudo udevadm control --reload-rules
+
+Unplug the panel and plug it back in. To start akp02d with your
+session:
+
+    mkdir -p ~/.config/systemd/user
+    cat > ~/.config/systemd/user/akp02d.service <<'EOF'
+    [Unit]
+    Description=akp02d
+
+    [Service]
+    ExecStart=%h/.local/bin/akp02d
+    Restart=on-failure
+    RestartSec=5
+
+    [Install]
+    WantedBy=default.target
+    EOF
 
 ## Start it
 

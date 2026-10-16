@@ -283,3 +283,9 @@ def test_requests_do_not_cost_a_frame(daemon, monkeypatch) -> None:
     late = sum(gap > 1.5 * period for gap in gaps)
     assert len(times) >= 20 and late <= 1 and max(gaps) < 3 * period, \
         f"{len(times)} renders, {late} late, longest gap {max(gaps) * 1000:.0f} ms"
+
+
+def test_udev_rule_path(capsys) -> None:
+    assert main(["--udev-rule"]) == 0
+    path = Path(capsys.readouterr().out.strip())
+    assert path.name == "99-akp02.rules" and "0300" in path.read_text()
