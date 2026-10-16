@@ -300,3 +300,20 @@ def test_a_meter_keeps_its_pivot_below() -> None:
     assert widget._centre[1] > 140 / 2                 # start does not apply
     assert not lookup("gauge").schema["start"].applies(
         lookup("gauge").schema.effective({"style": "meter"}))
+
+
+@pytest.mark.parametrize("start", ["bottom", "top"])
+def test_arc_text_clears_the_hub(start: str) -> None:
+    widget = gauge({"needle": True, "label": "DISK", "format": "{percent:.0f}",
+                    "start": start}, value=0.5)
+    widget.render(0.0)
+    cy = widget._centre[1]
+    label_box = widget._label_font.getbbox("DISK", anchor="ms")
+    value_box = widget._font.getbbox("50", anchor="ms")
+    label_top = widget._label_xy[1] + label_box[1]
+    value_bottom = widget._value_xy[1] + value_box[3]
+    if start == "bottom":
+        assert label_top > cy + widget._hub                  # below the hub
+    else:
+        assert value_bottom < cy - widget._hub               # above it
+    assert widget._label_xy[1] < widget._value_xy[1]         # label, then value

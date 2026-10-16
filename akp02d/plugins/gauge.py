@@ -196,7 +196,7 @@ class GaugeWidget(Widget):
                  "_glide", "_hub", "_hub_fill", "_label", "_label_fill", "_label_font",
                  "_label_xy", "_last", "_last_time", "_lut", "_needle", "_needle_lut",
                  "_next_read", "_radius", "_range", "_read_period", "_shadow", "_shown",
-                 "_source", "_start", "_style", "_sweep", "_target", "_text_fill", "_text_now",
+                 "_source", "_start", "_style", "_sweep", "_target", "_text_anchor", "_text_fill", "_text_now",
                  "_thickness", "_track", "_value_xy", "animating")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
@@ -235,6 +235,7 @@ class GaugeWidget(Widget):
             self._needle_lut = gradient.lut(tuple(stops))
             self._needle = (o.needle_length, o.needle_width)
         self._hub = o.hub if self._needle else 0
+        self._text_anchor: str | None = None   # set when text sits by the hub
         self._hub_fill = o.hub_color
         self._shadow = bool(o.shadow) and self._needle is not None
 
@@ -258,10 +259,7 @@ class GaugeWidget(Widget):
             self._label_xy = (width // 2, height // 2 - 2)
             self._value_xy = (width // 2, height // 2 + 2)
             if o.needle:
-                # The middle is the needle's: the text goes below it.
-                below = round(self._radius * 0.42)
-                self._label_xy = (width // 2, height // 2 + below - 2)
-                self._value_xy = (width // 2, height // 2 + below + 2)
+                self._text_beside_hub(width / 2, height / 2, o.start == "top")
         elif self._style == "dial":
             self._radius = min(width, height) / 2 - 1
             cx, cy = self._centre = (width / 2, height / 2)
@@ -393,6 +391,25 @@ class GaugeWidget(Widget):
             face.paste(small.convert("RGB"), (0, 0), small.getchannel("A"))
         return face
 
+    def _text_beside_hub(self, cx: float, cy: float, above: bool) -> None:
+        """The label and value as one tight block clear of the hub: below
+        it, in the gap between the arc's ends -- or above it when the gap
+        is at the top. Placed by baseline, from the fonts' own cap
+        heights, so the block is as short as the text allows."""
+        def cap(font) -> int:
+            box = font.getbbox("H")
+            return box[3] - box[1]
+
+        label_cap = cap(self._label_font) if self._label else 0
+        value_cap = cap(self._font) if self._format else 0
+        line_gap = round(max(label_cap, value_cap) * 0.45) if label_cap and value_cap else 0
+        clear = self._hub + max(3, round(self._radius * 0.08))
+        block = label_cap + line_gap + value_cap
+        top = cy + clear if not above else cy - clear - block
+        self._label_xy = (round(cx), round(top + label_cap))
+        self._value_xy = (round(cx), round(top + block))
+        self._text_anchor = "ms"
+
     def _zone_colour(self, zones, value, default):
         for low, high, colour in zones:
             if low <= value <= high:
@@ -453,10 +470,10 @@ class GaugeWidget(Widget):
             self._draw_needle(fraction)
         if self._style == "arc" and self._label:
             self._draw.text(self._label_xy, self._label, font=self._label_font,
-                            fill=self._label_fill, anchor="md")
+                            fill=self._label_fill, anchor=self._text_anchor or "md")
         text = self._text_now
         if text:
-            anchor = "ma" if self._style == "arc" else "mm"
+            anchor = self._text_anchor or ("ma" if self._style == "arc" else "mm")
             self._draw.text(self._value_xy, text, font=self._font, fill=self._text_fill,
                             anchor=anchor)
         return True
