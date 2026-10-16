@@ -787,3 +787,63 @@ def test_picking_channels_clears_an_older_mono_option(app, tmp_path: Path) -> No
         window.undo.setClean()
         window.close()
         pump(app)
+
+
+def _drop(window, plugin: str, scene_x: float, scene_y: float):
+    """A drop of an Add Widget button at a point on the panel, through
+    the canvas's own drop handling."""
+    from PySide6.QtCore import QMimeData, QPointF, Qt
+    from PySide6.QtGui import QDropEvent
+    from akp02d.editor.canvas import MIME
+
+    data = QMimeData()
+    data.setData(MIME, plugin.encode())
+    at = QPointF(window.canvas.mapFromScene(QPointF(scene_x, scene_y)))
+    event = QDropEvent(at, Qt.DropAction.CopyAction, data, Qt.MouseButton.LeftButton,
+                       Qt.KeyboardModifier.NoModifier)
+    window.canvas.dropEvent(event)
+    # Where the canvas saw it, after the trip to screen pixels and back.
+    return window.canvas.incoming_at(plugin, window.canvas.mapToScene(at.toPoint()))
+
+
+def test_dropping_an_add_button_places_the_widget_there(app, tmp_path: Path) -> None:
+    window = _window(app, tmp_path)
+    try:
+        canvas = window.canvas
+        width, height = canvas.screen
+        free = None
+        # Find a spot the default label size fits without overlapping.
+        for y in range(40, height - 40, 16):
+            for x in range(60, width - 60, 16):
+                found = canvas.incoming_at("label", __import__("PySide6.QtCore").QtCore.QPointF(x, y))
+                if found is not None and not found.overlaps:
+                    free = (x, y, found.rect)
+                    break
+            if free:
+                break
+        assert free is not None
+        before = len(window.engine.slots)
+        seen = _drop(window, "label", free[0], free[1])
+        pump(app, 0.3)
+        assert len(window.engine.slots) == before + 1
+        added = window.selection
+        entry = window.document.entry(added)
+        assert (entry["x"], entry["y"], entry["width"], entry["height"]) == tuple(seen.rect)
+        assert abs(seen.rect.y - free[2].y) <= 2       # where it was dropped
+        # One undo takes it away again.
+        window.undo.undo()
+        pump(app, 0.3)
+        assert len(window.engine.slots) == before
+        # Onto another widget: nothing is added.
+        taken = window.engine.slots[0].rect
+        _drop(window, "label", taken.x + taken.width / 2, taken.y + taken.height / 2)
+        pump(app, 0.3)
+        assert len(window.engine.slots) == before
+        # Off the panel: nothing either.
+        _drop(window, "label", -20, -20)
+        pump(app, 0.3)
+        assert len(window.engine.slots) == before
+    finally:
+        window.undo.setClean()
+        window.close()
+        pump(app)

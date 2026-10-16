@@ -468,12 +468,16 @@ class Inspector(QWidget):
         values = Schema(*options).effective(entry, spec, resolve=sources.lookup)
         groups: dict[str, QFormLayout] = {}
         for option in options:
-            if not option.applies(values):
-                continue
+            if not option.applies(values) or option.beside:
+                continue            # (one beside another is drawn in that row)
             form = groups.get(option.group)
             if form is None:
                 form = groups[option.group] = self._group(column, option.group)
             control = self._control(document, ref, option, entry, values, spec, slot)
+            toggles = [o for o in options
+                       if o.beside == option.key and o.kind == CHOICE and o.applies(values)]
+            if toggles:
+                control = self._with_toggles(ref, control, toggles, entry)
             explicit = option.key in entry
             doc = option.doc
             if isinstance(option.default, Auto):
@@ -696,6 +700,24 @@ class Inspector(QWidget):
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         column.addWidget(box)
         return form
+
+    def _with_toggles(self, ref: Ref, control: QWidget, toggles: list[Option],
+                      entry: dict[str, Any]) -> QWidget:
+        """A field with small icon toggles after it, one per choice that
+        sits beside it."""
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(control, 1)
+        for option in toggles:
+            toggle = controls.IconToggle(option.key, option.choices, option.default,
+                                         option.doc, holder)
+            toggle.set_value(option.modern(entry.get(option.key), entry.get))
+            toggle.changed.connect(
+                lambda value, k=option.key: self.widget_edited.emit(ref, k, value))
+            row.addWidget(toggle)
+        return holder
 
     def _row(self, form: QFormLayout, key: str, control: QWidget, explicit: bool,
              reset, doc: str = "", required: bool = False) -> None:

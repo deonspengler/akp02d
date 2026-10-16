@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QMimeData, QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import (
-    QAction, QCloseEvent, QColor, QImage, QKeySequence, QUndoCommand, QUndoStack,
+    QAction, QCloseEvent, QColor, QDrag, QImage, QKeySequence, QUndoCommand, QUndoStack,
 )
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
@@ -35,7 +35,7 @@ from .. import config as config_module, control, paths, sources
 from ..layout import Rect
 from ..plugins import available, lookup
 from ..schema import SOURCE
-from .canvas import Box, Canvas
+from .canvas import MIME, Box, Canvas
 from .controls import Segmented
 from .document import DocumentError, Ref, ThemeDocument
 from .engine import ERROR, Engine, Problem, snap
@@ -102,6 +102,43 @@ def to_qimage(image: Image.Image) -> QImage:
     return QImage(data, image.width, image.height, image.width * 3,
                   QImage.Format.Format_RGB888).copy()
 
+
+
+class AddButton(QPushButton):
+    """An Add Widget button: click to add, or drag it onto the panel.
+
+    A press that moves far enough becomes a drag carrying the plugin's
+    name; one that does not is an ordinary click.
+    """
+
+    def __init__(self, plugin: str, parent: QWidget | None = None) -> None:
+        super().__init__(style.plugin_icon(plugin, style.TEXT), plugin.capitalize(), parent)
+        self.plugin = plugin
+        self._press: QPoint | None = None
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if (self._press is None or not event.buttons() & Qt.MouseButton.LeftButton
+                or (event.position().toPoint() - self._press).manhattanLength()
+                < QApplication.startDragDistance()):
+            super().mouseMoveEvent(event)
+            return
+        self._press = None
+        self.setDown(False)          # a drag, so no click when it ends
+        data = QMimeData()
+        data.setData(MIME, self.plugin.encode())
+        drag = QDrag(self)
+        drag.setMimeData(data)
+        drag.setPixmap(style.plugin_icon(self.plugin, style.TEXT, 24).pixmap(24, 24))
+        drag.exec(Qt.DropAction.CopyAction)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._press = None
+        super().mouseReleaseEvent(event)
 
 class EditorWindow(QMainWindow):
     def __init__(self, document: ThemeDocument, cfg: config_module.Config) -> None:
@@ -264,11 +301,13 @@ class EditorWindow(QMainWindow):
         grid = QGridLayout()
         grid.setSpacing(6)
         for index, plugin in enumerate(available()):
-            button = QPushButton(style.plugin_icon(plugin, style.TEXT), plugin.capitalize())
+            button = AddButton(plugin)
             button.setMinimumHeight(40)
             cls = lookup(plugin)
+            tip = "Click to add, or drag onto the panel"
             if cls is not None and cls.summary:
-                button.setToolTip(cls.summary)
+                tip = f"{cls.summary}\n\n{tip}"
+            button.setToolTip(tip)
             button.clicked.connect(lambda _c=False, p=plugin: self.add_widget(p))
             grid.addWidget(button, index // 2, index % 2)
         add_column.addLayout(grid)
@@ -315,6 +354,8 @@ class EditorWindow(QMainWindow):
         self.canvas.duplicate_requested.connect(self.duplicate_widget)
         self.canvas.status.connect(lambda text: self.statusBar().showMessage(text, 4000))
         self.canvas.view_changed.connect(self._zoom_changed)
+        self.canvas.size_for = lambda plugin: DEFAULT_SIZES.get(plugin, (200, 100))
+        self.canvas.add_requested.connect(self.add_widget)
 
         # Right: settings.
         self.inspector = Inspector()
@@ -589,9 +630,11 @@ class EditorWindow(QMainWindow):
     def edit_theme(self, key: str, value: Any, description: str) -> None:
         self.apply(description, lambda doc: doc.set_theme(key, value), merge=f"theme.{key}")
 
-    def add_widget(self, plugin: str) -> None:
-        width, height = DEFAULT_SIZES.get(plugin, (200, 100))
-        rect = self._free_spot(width, height)
+    def add_widget(self, plugin: str, rect: Rect | None = None) -> None:
+        """A new widget: where it was dropped, else in a free spot."""
+        if rect is None:
+            width, height = DEFAULT_SIZES.get(plugin, (200, 100))
+            rect = self._free_spot(width, height)
         if rect is None:
             QMessageBox.information(self, "No room",
                                     "There is no free space for a widget that size. "

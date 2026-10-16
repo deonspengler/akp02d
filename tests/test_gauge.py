@@ -241,3 +241,61 @@ def test_arc_zones_tint_the_track() -> None:
     zone = on_stroke(w, 0.9)
     assert zone != TRACK and zone[0] > TRACK[0] + 50
     assert on_stroke(w, 0.6) == TRACK
+
+
+# -- start and direction --
+
+
+def lit_side(widget) -> str:
+    """Which half of an arc gauge its fill is in, at 30%."""
+    width, height = widget.surface.size
+    left = sum(widget.surface.getpixel((x, y))[1] > 150
+               for x in range(width // 2) for y in range(height))
+    right = sum(widget.surface.getpixel((x, y))[1] > 150
+                for x in range(width // 2, width) for y in range(height))
+    return "left" if left > right else "right"
+
+
+def lit_half(widget) -> str:
+    width, height = widget.surface.size
+    top = sum(widget.surface.getpixel((x, y))[1] > 150
+              for x in range(width) for y in range(height // 2))
+    bottom = sum(widget.surface.getpixel((x, y))[1] > 150
+                 for x in range(width) for y in range(height // 2, height))
+    return "top" if top > bottom else "bottom"
+
+
+ARC = {"gradient": ["#20ff20"], "track": "#000000"}
+
+
+def test_direction_runs_the_fill_the_other_way() -> None:
+    cw = gauge(ARC, value=0.3)
+    cw.render(0.0)
+    ccw = gauge({**ARC, "direction": "counterclockwise"}, value=0.3)
+    ccw.render(0.0)
+    assert lit_side(cw) == "left" and lit_side(ccw) == "right"
+    # The same stroke either way; only where it starts differs.
+    assert cw._ring.mask.tobytes() == ccw._ring.mask.tobytes()
+
+
+def test_start_at_the_top_puts_the_ends_there() -> None:
+    bottom = gauge({**ARC, "sweep": 360.0}, value=0.3)
+    bottom.render(0.0)
+    top = gauge({**ARC, "sweep": 360.0, "start": "top"}, value=0.3)
+    top.render(0.0)
+    assert lit_half(bottom) == "bottom" and lit_half(top) == "top"
+
+
+def test_needle_follows_direction() -> None:
+    widget = gauge({"style": "dial", "direction": "counterclockwise"}, value=0.0)
+    widget.render(0.0)
+    # Empty points at the bottom right on a counterclockwise dial.
+    angle = (widget._start + widget._sweep * 0.0) % 360
+    assert 0 < angle < 90
+
+
+def test_a_meter_keeps_its_pivot_below() -> None:
+    widget = gauge({"style": "meter", "start": "top"}, size=(200, 140))
+    assert widget._centre[1] > 140 / 2                 # start does not apply
+    assert not lookup("gauge").schema["start"].applies(
+        lookup("gauge").schema.effective({"style": "meter"}))

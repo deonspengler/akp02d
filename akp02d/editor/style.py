@@ -8,6 +8,8 @@ whatever desktop runs it.
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QApplication
@@ -261,6 +263,36 @@ def action_icon(name: str) -> QIcon:
         p.moveTo(13.5, 6.5); p.lineTo(6, 6.5)
         p.cubicTo(1, 6.5, 1, 13, 6, 13); p.lineTo(9.5, 13)
 
+    ring = QRectF(2.5, 2.5, 11, 11)
+
+    def gap_at(p: QPainterPath, bottom: bool) -> None:
+        # A scale with its ends -- and its zero -- at the bottom or top:
+        # the ring with a gap there, a dot marking the spot.
+        begin = 240 if bottom else 60
+        p.arcMoveTo(ring, begin)
+        p.arcTo(ring, begin, -300)
+        y = 13.5 if bottom else 2.5
+        p.addEllipse(QPointF(8, y), 0.7, 0.7)
+
+    def turning(p: QPainterPath, clockwise: bool) -> None:
+        # Most of a circle with an arrowhead: the way the scale runs.
+        sign = 1 if clockwise else -1
+        begin = 210 if clockwise else -30
+        p.arcMoveTo(ring, begin)
+        p.arcTo(ring, begin, -240 * sign)
+        end = math.radians(-30 if clockwise else 210)
+        tx, ty = 8 + 5.5 * math.cos(end), 8 - 5.5 * math.sin(end)
+        # On screen, clockwise travel at angle a heads (sin a, cos a).
+        dx, dy = math.sin(end) * sign, math.cos(end) * sign
+        px, py = -dy, dx
+        for wing in (1, -1):
+            p.moveTo(tx, ty)
+            p.lineTo(tx - 3.0 * dx + 2.2 * wing * px, ty - 3.0 * dy + 2.2 * wing * py)
+
     drawings = {"new": new, "save": save, "undo": undo, "redo": redo,
-                "duplicate": duplicate, "delete": delete, "folder": folder}
+                "duplicate": duplicate, "delete": delete, "folder": folder,
+                "start_bottom": lambda p: gap_at(p, True),
+                "start_top": lambda p: gap_at(p, False),
+                "direction_clockwise": lambda p: turning(p, True),
+                "direction_counterclockwise": lambda p: turning(p, False)}
     return _line_icon(drawings[name])

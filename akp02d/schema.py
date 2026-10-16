@@ -136,6 +136,10 @@ class Option:
     # setting this option removes them, so they cannot pull the reading
     # back to what they meant.
     replaces: tuple[str, ...] = ()
+    # For tools: a CHOICE shown as a small icon toggle in another
+    # option's row (the gauge's start and direction, beside sweep)
+    # rather than as a row of its own.
+    beside: str = ""
 
     @property
     def required(self) -> bool:

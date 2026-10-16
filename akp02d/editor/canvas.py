@@ -12,10 +12,15 @@ the daemon enforces at load:
 * no overlaps: a drop onto another widget is refused and the box goes
   back where it was, unless Alt is held -- for the moment when swapping
   two widgets needs one to sit on the other briefly.
+
+A new widget can be dragged in from the Add Widget buttons: an outline
+of its default size follows the pointer, snapped by the same rule, red
+where it would overlap; dropping it there does nothing.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from akp02 import AKP02, Orientation
@@ -29,6 +34,9 @@ from PySide6.QtWidgets import (
 )
 
 from .. import layout
+
+# What an Add Widget button carries when dragged: the plugin's name.
+MIME = "application/x-akp02d-plugin"
 from ..layout import Rect
 from .engine import snap
 from . import style
@@ -53,6 +61,7 @@ class Canvas(QGraphicsView):
     duplicate_requested = Signal(str)
     status = Signal(str)
     view_changed = Signal()
+    add_requested = Signal(str, object)       # plugin, Rect: dropped from Add Widget
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -85,6 +94,11 @@ class Canvas(QGraphicsView):
         self.fitted = True
         self._drag: _Drag | None = None
         self._hover_handle: str | None = None
+        # A widget being dragged in from Add Widget, and the size a new
+        # one of a kind starts at (the window's say).
+        self._incoming: _Incoming | None = None
+        self.size_for: Callable[[str], tuple[int, int]] = lambda plugin: (200, 100)
+        self.setAcceptDrops(True)
 
     # -- content --
 
@@ -333,6 +347,68 @@ class Canvas(QGraphicsView):
         if moved != box.rect:
             self.geometry_committed.emit(box.id, moved)
 
+    # -- a new widget, dragged in --
+
+    def incoming_at(self, plugin: str, point: QPointF) -> _Incoming | None:
+        """Where a new `plugin` would land with the pointer at `point`
+        (scene, panel pixels): centred on it, kept on the panel, snapped
+        colour-safe. None off the panel."""
+        width, height = self.screen
+        if not (0 <= point.x() < width and 0 <= point.y() < height):
+            return None
+        w, h = self.size_for(plugin)
+        w, h = min(w, width), min(h, height)
+        x = min(max(round(point.x() - w / 2), 0), width - w)
+        y = min(max(round(point.y() - h / 2), 0), height - h)
+        rect = snap(Rect(x, y, w, h), self.orientation, self.inverted, self.screen)
+        overlaps = [b.id for b in self.boxes if b.rect.overlaps(rect)]
+        return _Incoming(plugin, rect, overlaps)
+
+    def _track_incoming(self, event) -> bool:
+        data = event.mimeData()
+        if not data.hasFormat(MIME):
+            return False
+        plugin = bytes(data.data(MIME)).decode()
+        self._incoming = self.incoming_at(plugin, self.mapToScene(event.position().toPoint()))
+        incoming = self._incoming
+        if incoming is None:
+            self.status.emit(f"New {plugin}: drop it on the panel")
+        elif incoming.overlaps:
+            self.status.emit(f"New {plugin} would overlap {', '.join(incoming.overlaps)}")
+        else:
+            r = incoming.rect
+            self.status.emit(f"New {plugin}  {r.x}, {r.y}  {r.width}×{r.height}")
+        self.viewport().update()
+        return True
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if self._track_incoming(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
+        if self._track_incoming(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802
+        self._incoming = None
+        self.viewport().update()
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        if not self._track_incoming(event):
+            event.ignore()
+            return
+        incoming, self._incoming = self._incoming, None
+        self.viewport().update()
+        if incoming is None or incoming.overlaps:
+            event.ignore()           # nowhere it can go: nothing added
+            return
+        event.acceptProposedAction()
+        self.add_requested.emit(incoming.plugin, incoming.rect)
+
     def _drag_text(self, drag: _Drag) -> str:
         r = drag.rect
         text = f"{drag.id}  {r.x}, {r.y}  {r.width}×{r.height}"
@@ -445,6 +521,19 @@ class Canvas(QGraphicsView):
             painter.drawRoundedRect(QRectF(tag_rect), 3, 3)
             painter.setPen(QColor("#0d1117"))
             painter.drawText(tag_rect, Qt.AlignmentFlag.AlignCenter, tag)
+        incoming = self._incoming
+        if incoming is not None:
+            area = self._view_rect(incoming.rect)
+            colour = QColor(style.BAD) if incoming.overlaps else self.accent
+            fill = QColor(colour)
+            fill.setAlpha(40)
+            painter.setPen(QPen(colour, 1.5, Qt.PenStyle.DashLine))
+            painter.setBrush(fill)
+            painter.drawRect(QRectF(area).adjusted(0.5, 0.5, -0.5, -0.5))
+            if incoming.overlaps:
+                painter.fillRect(area, QBrush(colour, Qt.BrushStyle.BDiagPattern))
+            painter.setPen(colour)
+            painter.drawText(area, Qt.AlignmentFlag.AlignCenter, f"new {incoming.plugin}")
         painter.restore()
 
     def _draw_guides(self, painter: QPainter, drag: _Drag) -> None:
@@ -481,6 +570,13 @@ class Canvas(QGraphicsView):
         top_left = self.mapFromScene(QPointF(rect.x, rect.y))
         bottom_right = self.mapFromScene(QPointF(rect.x + rect.width, rect.y + rect.height))
         return QRect(top_left, bottom_right - QPoint(1, 1)).adjusted(0, 0, 1, 1)
+
+
+@dataclass(slots=True)
+class _Incoming:
+    plugin: str
+    rect: Rect
+    overlaps: list[str]
 
 
 @dataclass(slots=True)

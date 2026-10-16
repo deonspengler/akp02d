@@ -717,6 +717,51 @@ class ChoiceField(QComboBox):
             self.changed.emit(value)
 
 
+class IconToggle(QToolButton):
+    """A choice shown as an icon that steps to the next one when clicked.
+
+    For a choice with a picture of each value -- the gauge's start and
+    direction, beside its sweep. The icon is the value in effect, the
+    tooltip says what it is and what a click changes it to. Picking the
+    default emits None, so the theme keeps only what differs from it.
+    """
+
+    changed = Signal(object)
+
+    def __init__(self, key: str, choices: Sequence[str], default: str, doc: str = "",
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._key = key
+        self._choices = list(choices)
+        self._default = default
+        self._doc = doc
+        self._value = default
+        self.setObjectName(f"toggle.{key}")
+        self.setIconSize(QSize(18, 18))
+        self.setAutoRaise(True)
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.setStyleSheet(
+            f"QToolButton {{ padding: 3px; border: 1px solid {style.BORDER}; "
+            f"border-radius: 5px; background: {style.FIELD}; }}"
+            f"QToolButton:hover {{ background: {style.RAISED}; }}")
+        self.clicked.connect(self._step)
+
+    def set_value(self, value: Any) -> None:
+        self._value = value if value in self._choices else self._default
+        self.setIcon(style.action_icon(f"{self._key}_{self._value}"))
+        following = self._choices[(self._choices.index(self._value) + 1) % len(self._choices)]
+        tip = f"{self._key}: {self._value}\nClick for {following}"
+        self.setToolTip(f"{tip}\n\n{self._doc}" if self._doc else tip)
+
+    def value(self) -> str:
+        return self._value
+
+    def _step(self) -> None:
+        following = self._choices[(self._choices.index(self._value) + 1) % len(self._choices)]
+        self.set_value(following)
+        self.changed.emit(None if following == self._default else following)
+
+
 class SourceField(ChoiceField):
     """A data source, by name."""
 

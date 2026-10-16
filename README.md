@@ -336,9 +336,10 @@ a stop opens the colour picker, which has **Remove colour** for taking
 it out again.
 
 A gradient painted across an area -- the panel's `background`, any
-widget's `background`, a label's `color` -- also has a shape and an
-angle, named after the option: `background_shape` and
-`background_angle`, `color_shape` and `color_angle`. Shape is `linear`
+widget's `background`, a label's `color`, a graph's `fill` -- also has
+a shape and an angle, named after the option: `background_shape` and
+`background_angle`, `color_shape` and `color_angle`, `fill_shape` and
+`fill_angle`. Shape is `linear`
 (the default) or `radial`, from the middle out. The angle is in degrees
 as CSS has it: 0 runs bottom to top, 90 left to right, 180 top to
 bottom (the default), 270 right to left; the first and last colours

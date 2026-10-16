@@ -8,7 +8,7 @@
     fps = 1
     source = "cpu"
     gradient = ["#11e3f5", "#fd44dd"]
-    fill = "#18243c"
+    fill = "#18243c"               # or ["#11e3f5", "#18243c"], a gradient
     fill_alpha = 0.5
 
 A source that produces a pair -- network, with a rate in each direction
@@ -51,6 +51,7 @@ from PIL import Image, ImageDraw
 
 from .. import gradient, sources
 from ..schema import Auto, Schema, choice, color, colors, integer, number, source
+from ..textfx import gradient_options
 from .base import Widget, WidgetSpec, register
 
 
@@ -74,8 +75,10 @@ class GraphWidget(Widget):
                doc="Line colour by height; for a pair, the upper (up) trace"),
         colors("gradient_down", ("#fd44dd", "#ff99ee"), group="Line",
                doc="The lower (down) trace of a pair", when=_pair),
-        color("fill", None, group="Fill",
-              doc="Colour under the line; leave empty for none"),
+        colors("fill", None, group="Fill",
+               doc="Colour under the line, or several for a gradient; empty "
+                   "for none"),
+        *gradient_options("fill", group="Fill", subject="the fill"),
         number("fill_alpha", 1.0, 0.0, 1.0, group="Fill",
                when=lambda v: v.get("fill") is not None,
                doc="Opacity of the fill, so the wallpaper shows through"),
@@ -116,7 +119,10 @@ class GraphWidget(Widget):
         self._mirrored = self._source.kind == sources.PAIR
         stops = o.gradient
         down_stops = o.gradient_down
-        self._fill = o.fill
+        # Painted once: the trace only changes which part of it shows.
+        self._fill = (None if o.fill is None else
+                      gradient.paint(tuple(o.fill), spec.rect.size,
+                                     o.fill_angle, o.fill_shape).copy())
         # The fill is decoration over whatever is behind it, so it is the
         # part that wants to be see-through -- a solid block hides the
         # wallpaper the widget is sitting on. The line stays opaque: it
@@ -236,9 +242,7 @@ class GraphWidget(Widget):
                     # scaling it down blends the fill with the backdrop.
                     scale = self._fill_alpha
                     mask = mask.point(lambda value: int(value * scale))
-                self.surface.paste(
-                    Image.new("RGB", (width, height), self._fill), (0, 0), mask
-                )
+                self.surface.paste(self._fill, (0, 0), mask)
             self._line_draw.rectangle((0, 0, width - 1, height - 1), fill=0)
             if len(points) > 1:
                 self._line_draw.line(points, fill=255, width=self._line_width)

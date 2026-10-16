@@ -21,7 +21,8 @@
   scale, like an old ammeter, voltmeter or VU meter.
 
 All three share the reading (source, min, max, format), the `sweep`
-of the scale, `zones` (ranges drawn in a colour: a red line), and
+of the scale and which way it runs (`direction`; arc and dial also
+`start`, where its ends are), `zones` (ranges drawn in a colour: a red line), and
 `glide`, which swings the needle to a new reading instead of jumping.
 Options a style does not use are hidden in the editor.
 
@@ -132,7 +133,14 @@ class GaugeWidget(Widget):
                doc="arc: a filling arc; dial: a round face with ticks and a "
                    "needle; meter: a cream meter face with a needle pivoting below"),
         number("sweep", _per(270.0, 270.0, 90.0, "270; 90 for meter"), 30.0, 360.0,
-               group="Gauge", doc="Degrees the scale spans, centred at the top"),
+               group="Gauge", doc="Degrees the scale spans"),
+        choice("start", ("bottom", "top"), "bottom", group="Gauge", beside="sweep",
+               when=lambda v: _style(v) != "meter",
+               doc="Where the scale's ends are: bottom, with the gap at the "
+                   "bottom like a car's dial, or top. A full circle starts there"),
+        choice("direction", ("clockwise", "counterclockwise"), "clockwise",
+               group="Gauge", beside="sweep",
+               doc="Which way the scale runs from its start"),
         zones(group="Gauge",
               doc="Ranges of the reading drawn in a colour, as [from, to, "
                   "colour] in the same units as min and max: a red line"),
@@ -234,8 +242,14 @@ class GaugeWidget(Widget):
         if high <= low:
             raise options.fail("max", f"greater than min ({low})", high)
         self._range = (low, high - low)
-        self._sweep = o.sweep
-        self._start = 270.0 - o.sweep / 2          # centred at the top
+        # Angles as Pillow has them: degrees clockwise from three o'clock.
+        # The sweep is signed -- negative runs counterclockwise -- so a
+        # point along the scale is always start + sweep * fraction.
+        self._sweep = o.sweep if o.direction == "clockwise" else -o.sweep
+        # Centred opposite its ends: on the top (270) when they are at
+        # the bottom. A meter's pivot is below its scale, so it stays so.
+        centre = 90.0 if o.start == "top" and o.style != "meter" else 270.0
+        self._start = centre - self._sweep / 2
         self._by_level = o.color_by == "level"
         self._lut = gradient.lut(o.gradient)
         self._track = o.track
@@ -279,10 +293,15 @@ class GaugeWidget(Widget):
         elif self._style == "dial":
             self._radius = min(width, height) / 2 - 1
             cx, cy = self._centre = (width / 2, height / 2)
-            self._label_xy = (cx, cy + self._radius * 0.40)
-            self._value_xy = (cx, cy + self._radius * 0.62)
+            # In the gap between the scale's ends, where there are no numbers.
+            if o.start == "top":
+                self._label_xy = (cx, cy - self._radius * 0.62)
+                self._value_xy = (cx, cy - self._radius * 0.40)
+            else:
+                self._label_xy = (cx, cy + self._radius * 0.40)
+                self._value_xy = (cx, cy + self._radius * 0.62)
         else:  # meter
-            half = math.radians(min(self._sweep, 170.0) / 2)
+            half = math.radians(min(abs(self._sweep), 170.0) / 2)
             top = height * 0.24
             radius = (width * 0.40) / max(math.sin(half), 0.2)
             radius = min(radius, max(height * 2.5, 1.0))
@@ -340,8 +359,8 @@ class GaugeWidget(Widget):
             for low, high, colour in o.zones:
                 rb = r * 0.90
                 a0, a1 = self._angle(low), self._angle(high)
-                if a1 > a0:
-                    big.arc((cx - rb, cy - rb, cx + rb, cy + rb), a0, a1,
+                if a1 != a0:
+                    big.arc((cx - rb, cy - rb, cx + rb, cy + rb), *_span(a0, a1),
                             fill=(*colour, 255), width=round(band))
             outer, major, minor, numbers_at = r * 0.93, r * 0.11, r * 0.055, r * 0.70
             drew = True
@@ -352,14 +371,14 @@ class GaugeWidget(Widget):
                                   corner, fill=(*o.face, 255), outline=(*o.rim, 255),
                                   width=round(rim))
             line = max(SS, round(r * 0.006))
-            big.arc((cx - r, cy - r, cx + r, cy + r), start, start + sweep,
+            big.arc((cx - r, cy - r, cx + r, cy + r), *_span(start, start + sweep),
                     fill=(*o.scale_color, 255), width=line)
             for low, high, colour in o.zones:
                 a0, a1 = self._angle(low), self._angle(high)
                 band = max(2 * SS, round(r * 0.03))
                 rb = r + band
-                if a1 > a0:
-                    big.arc((cx - rb, cy - rb, cx + rb, cy + rb), a0, a1,
+                if a1 != a0:
+                    big.arc((cx - rb, cy - rb, cx + rb, cy + rb), *_span(a0, a1),
                             fill=(*colour, 255), width=band)
             outer, major, minor, numbers_at = -r, r * 0.07, r * 0.035, None
             drew = True
@@ -546,7 +565,7 @@ class _Ring:
         draw = ImageDraw.Draw(big)
         draw.arc((round((cx - a) * SS), round((cy - b) * SS),
                   round((cx + a) * SS) - 1, round((cy + b) * SS) - 1),
-                 start, start + sweep, fill=255, width=thickness * SS)
+                 *_span(start, start + sweep), fill=255, width=thickness * SS)
         if round_caps:
             r = thickness / 2 * SS
             for end in (0.0, 1.0):
@@ -555,7 +574,9 @@ class _Ring:
         self.mask = big.reduce(SS)
         coverage = self.mask.tobytes()
         mid_a, mid_b = max(self._mid[0], 0.5), max(self._mid[1], 0.5)
-        gap = 360.0 / sweep
+        # A signed sweep: how far along is measured the way it runs.
+        turn, span = (1.0, sweep) if sweep > 0 else (-1.0, -sweep)
+        gap = 360.0 / span
         positions = []
         for y in range(height):
             dy = (y + 0.5 - cy) / mid_b
@@ -565,7 +586,7 @@ class _Ring:
                     positions.append(0)
                     continue
                 angle = math.degrees(math.atan2(dy, (x + 0.5 - cx) / mid_a))
-                along = ((angle - start) % 360.0) / sweep
+                along = (((angle - start) * turn) % 360.0) / span
                 if along > 1.0:   # in a cap, past an end: which one is nearer
                     along = 1.0 if along - 1.0 < gap - along else 0.0
                 positions.append(int(along * self.SCALE))
@@ -573,7 +594,7 @@ class _Ring:
         self.position.putdata(positions)
         # A soft edge about a pixel wide, measured along the middle of
         # the stroke.
-        length = math.radians(sweep) * (mid_a + mid_b) / 2
+        length = math.radians(span) * (mid_a + mid_b) / 2
         self._edge = max(1.0, self.SCALE / max(length, 1.0))
 
     def point(self, fraction: float) -> tuple[float, float]:
@@ -616,6 +637,13 @@ def _ring(size, axes, thickness, start, sweep, round_caps) -> _Ring:
     """Cached: an editor rebuilds a widget on every change, and the
     position map is the one costly part. Callers must not draw on it."""
     return _Ring(size, axes, thickness, start, sweep, round_caps)
+
+
+def _span(a: float, b: float) -> tuple[float, float]:
+    """Two angles in the order Pillow's arc takes them: it always draws
+    clockwise from the first, so a counterclockwise scale's arc is the
+    same stroke drawn from its other end."""
+    return (a, b) if b >= a else (b, a)
 
 
 def _point(cx: float, cy: float, r: float, degrees: float) -> tuple[float, float]:
