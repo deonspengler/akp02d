@@ -1,18 +1,41 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "akp02d"
 dynamic = ["version"]
-description = "Themed system stats display for the Ajazz AKP02 panel"
+description = "Themed system stats display for the Ajazz AKP02 panel, with a live theme editor"
+readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [{ name = "Deon Spengler", email = "deon@spengler.co.za" }]
 requires-python = ">=3.11"
 dependencies = ["akp02>=2.0.0", "pillow>=10.1"]
+keywords = ["ajazz", "akp02", "lcd", "system-monitor", "stats", "display", "cava"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: No Input/Output (Daemon)",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Monitoring",
+    "Topic :: Multimedia :: Graphics",
+]
 
 [project.optional-dependencies]
 # The theme editor. The daemon never imports it.
 editor = ["PySide6-Essentials>=6.5"]
 test = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/deonspengler/akp02d"
+Issues = "https://github.com/deonspengler/akp02d/issues"
+Changelog = "https://github.com/deonspengler/akp02d/blob/main/CHANGELOG.md"
 
 [project.scripts]
 akp02d = "akp02d.__main__:main"
@@ -25,4 +48,9 @@ path = "akp02d/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["akp02d"]
-artifacts = ["akp02d/themes/**"]
+
+[tool.hatch.build.targets.sdist]
+include = ["akp02d", "tests", "contrib", "docs", "README.md", "CHANGELOG.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
