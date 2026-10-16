@@ -1,33 +1,10 @@
-"""label: one line of text, from a source or written out.
+"""label: one line of text, from a source's format or written out.
 
-    [[widget.label]]
-    x = 40
-    y = 26
-    width = 400
-    height = 60
-    source = "time"
-    format = "{value:%H:%M:%S}"
-    size = 44
-
-    [[widget.label]]
-    source = "cpu"
-    format = "CPU {percent:.0f}%"
-
-    [[widget.label]]
-    format = "Hello, Delia"        # no source: drawn literally
-
-One format language rather than two: Python's format spec already
-handles datetimes, so "{value:%H:%M}" and "{percent:.0f}%" are the same
-mechanism and compose in one string. Without a source the format is not
-substituted at all, which is what makes static text need no plugin of
-its own.
-
-Text is centred on its cap-height band -- baseline to the top of a
-capital -- rather than on the font's line box. Line-box centring makes
-the result depend on which glyphs a string happens to contain, so caps
-look right while x-height text sits low and descenders drag it lower.
-The cap band depends only on the font and size, so it is correct for
-digits and stable as the text changes.
+The format is Python's, so "{value:%H:%M}" and "{percent:.0f}%" are one
+mechanism; without a source the text is drawn as written. Text is
+centred on its cap-height band rather than the font's line box, so its
+position depends only on the font and size, not on which glyphs the
+string happens to contain.
 """
 
 from __future__ import annotations

@@ -1,23 +1,14 @@
-"""Where akp02d keeps things: one home, under the user's config directory.
+"""Where akp02d keeps things.
 
-    ~/.config/akp02d/akp02d.toml     the machine's settings
-    ~/.config/akp02d/themes/<name>/  every theme, by name
+    ~/.config/akp02d/akp02d.toml     settings ($XDG_CONFIG_HOME if set)
+    ~/.config/akp02d/themes/<name>/  themes, by name
+    $XDG_RUNTIME_DIR/akp02d.sock     the control socket
 
-(~/.config is $XDG_CONFIG_HOME when that is set.) A theme name means a
-folder in themes/ and nowhere else, so the daemon, `akp02d ctl themes`
-and the editor all see the same list. An explicit path -- anything with
-a slash in it -- still runs a theme from wherever it is, for developing
-one in place.
-
-The themes that ship with akp02d live inside the package only as
-originals to copy from. Every start copies any of them the user does not
-have yet -- so a new one appears after an upgrade -- and never touches
-one that exists: the user's copy is theirs to edit.
-`akp02d --restore-theme NAME` puts an original back, keeping the edited
-one beside it.
-
-The control socket lives in $XDG_RUNTIME_DIR (/run/user/<uid>), which
-only the user can enter and which is emptied at logout.
+A theme name means a folder in themes/; a path (anything with a slash)
+runs a theme from where it is. The bundled themes are originals: every
+start copies any the user does not have yet and never touches one that
+exists. `akp02d --restore-theme NAME` puts an original back, keeping
+the edited copy beside it.
 """
 
 from __future__ import annotations

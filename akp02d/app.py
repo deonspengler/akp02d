@@ -1,52 +1,17 @@
 """The main loop.
 
-Shape of a frame, and why:
-
-* One full-screen draw happens at startup and never again. A full frame
-  is a ~886k-pixel transpose, a JPEG encode of the same, and something
-  like a hundred 1024-byte HID writes; and the library must then insert
-  FULL_TO_REGION_SETTLE_SEC (20 ms, over half a frame at 30 FPS) before
-  the next region. Both costs are paid once, before the loop starts.
-
-* After that, only regions. Widgets do not overlap -- layout.validate
-  guarantees it -- so each widget's box is an independent push and there
-  is no compositing step at all.
-
-* 30 FPS is the scheduling quantum, not a redraw rate. A widget is
-  visited only when its own interval is due, and pushed only when it
-  reports a change. A theme of 1 Hz widgets does real work on one frame
-  in thirty and sleeps through the other twenty-nine.
-
-* Encode and push are separate. encode_region() takes no lock and
-  touches no handle, so its result caches on the widget and a push is
-  just bytes the library sends untouched. It also means the encode can
-  later move to a worker thread without the push path changing.
-
-* Everything dirty in a frame goes out as one region. The driver makes
-  each push wait out the panel's settle first -- about 10 ms, and per
-  push rather than per byte -- so a second region in the same frame
-  costs more than the whole of a big one. Widgets given the same rate
-  come due together, so that collision is the ordinary case for a panel
-  of stats, not a rare one.
-
-  Combining means cropping the box that covers them all out of a
-  panel-sized composite every widget paints into, which sends the
-  unchanged pixels between them too. That is far cheaper than it
-  sounds: one saved settle buys about 80 KiB of payload, and the whole
-  panel encodes to around 20. Measured on a five-widget theme, a frame
-  where every widget came due cost 42.9 ms as separate pushes and
-  2.6 ms combined.
-
-  So there is nothing to ration and no queue: one push per frame is not
-  a compromise, it is the cheapest thing available.
-
-* The theme is watched. Once a second the loop compares theme.toml's
-  and the wallpaper's file state with what it loaded; if either moved,
-  it loads the theme again, and only a theme that loads and validates
-  completely replaces the running one -- with a fresh full-screen draw,
-  the one other time that happens. A theme saved half-finished is
-  logged and the panel keeps what it had. One stat() a second is the
-  whole cost, so it is on unless --no-watch says otherwise.
+* One full-screen draw at startup (and after a theme change); regions
+  after that. A full frame costs a big encode, ~100 HID writes and a
+  20 ms settle before the next region.
+* The loop ticks at `fps`; each widget renders only when its own
+  interval is due and is pushed only when it reports a change.
+* Everything that changed in a frame goes out as one region, cropped
+  from a panel-sized composite every widget paints into. Each push
+  waits out a ~10 ms settle, so one larger region beats several small
+  ones (measured: 2.6 ms against 42.9 ms for five widgets).
+* The theme is watched: once a second its files' state is compared,
+  and a theme that loads and validates completely replaces the running
+  one. One that does not is logged and the panel keeps what it had.
 """
 
 from __future__ import annotations
@@ -333,12 +298,9 @@ class App:
     def _wait(self, seconds: float) -> None:
         """The pause between frames: on the socket if there is one.
 
-        A request wakes it early, but the frame still waits out its
-        time. Each early wake used to count as a frame, running the
-        schedule ahead of the clock, and the loop then slept the
-        difference off: a stall of several frames in anything moving,
-        each time the editor asked how the daemon was. Only a switched
-        theme or a stop ends the wait sooner.
+        A request wakes it early, but the frame still waits out its time,
+        so requests never shift the schedule (and stall anything moving).
+        Only a switched theme or a stop ends the wait sooner.
         """
         if self.control is None:
             if seconds > 0:

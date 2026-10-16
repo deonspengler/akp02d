@@ -1,49 +1,15 @@
-"""gauge: a scalar as a swept arc, a needle dial, or an analog meter.
+"""gauge: a reading as a swept arc, a needle dial, or an analog meter.
 
-    [[widget.gauge]]
-    x = 1280
-    y = 142
-    width = 160
-    height = 160
-    source = "memory"
-    label = "MEM"
-    format = "{used_gb:.0f}/{total_gb:.0f}G"
-    gradient = ["#22dd66", "#ffd022", "#ff3b30"]
+Everything that does not move -- face, rim, track, zones, ticks,
+numbers -- is drawn once, supersampled, into the backdrop. The arc's
+fill is drawn once too, with a map of how far round each pixel lies, so
+showing a value is one clamped map of that image rather than a redraw.
+The needle is supersampled over its own bounding box. With `glide` the
+widget is visited at ANIM_FPS while the reading is still taken at `fps`.
 
-`style` picks the look, the way a spectrum's `type` does:
-
-* arc (the default) -- a swept arc filling to the value, with the label
-  and value in the middle. `needle = true` adds a needle that takes the
-  arc's colour where it points.
-* dial -- a round face with ticks and numbers and a tapered needle on a
-  hub, like a car's.
-* meter -- a cream meter face whose needle pivots from below the
-  scale, like an old ammeter, voltmeter or VU meter.
-
-All three share the reading (source, min, max, format), the `sweep`
-of the scale and which way it runs (`direction`; arc and dial also
-`start`, where its ends are), `zones` (ranges drawn in a colour: a red line), and
-`glide`, which swings the needle to a new reading instead of jumping.
-Options a style does not use are hidden in the editor.
-
-The arc takes one colour, picked from the gradient by the value it is
-showing, so a full gauge is red at a glance. `color_by = "position"`
-instead runs the ramp around the arc. `caps = "round"` rounds the arc's
-two ends; `tip = "round"` rounds the fill's moving end. Either goes with
-either.
-
-Everything that does not move -- face, rim, track, zones, ticks, numbers
-and, on the dial and meter, the label -- is drawn once, at load, into the
-widget's backdrop, supersampled so its curves are smooth. So is the
-arc's whole fill, with a map of how far round the arc each pixel lies;
-showing the fill up to a value is then one clamped linear map of that
-map (a soft, pixel-wide cut) -- no drawing at all. A redraw is a paste
-of the face, of the fill through that cut, the needle (supersampled
-over just its own bounding box) and the value text.
-
-Gliding needs frames between readings, so with `glide` the widget is
-visited at ANIM_FPS while the reading is still taken at `fps`; a
-needle at rest redraws nothing.
+Angles are Pillow's: degrees clockwise from three o'clock. The sweep is
+signed (negative runs counterclockwise), so a point along the scale is
+always start + sweep * fraction.
 """
 
 from __future__ import annotations

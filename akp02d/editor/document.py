@@ -1,28 +1,15 @@
 """A theme.toml that can be edited without being rewritten.
 
-A theme is a file people write by hand, with comments that explain the
-numbers (`max = 12500000  # 100 Mbit`) and an order that groups a
-caption with the graph it labels. A TOML library that loads and dumps
-the whole document loses some of that: tomlkit, for one, regroups
-interleaved `[[widget.label]]` / `[[widget.graph]]` blocks the moment
-anything changes. So this edits the text itself, one line at a time:
+Themes are written by hand, with comments and an order worth keeping,
+and TOML libraries that load and dump the whole file lose some of that.
+So edits are made to the text, line by line: a changed value keeps the
+comment after it, a new key goes at the end of its widget, a removed
+key or widget takes only its own lines. Values are located by asking
+tomllib where they end, and the whole text is parsed again after every
+edit, so one that would leave invalid TOML is refused.
 
-* setting a key that exists replaces only its value, keeping the
-  comment after it;
-* setting a new key appends one line to the end of that widget's keys;
-* removing a key removes its line (or lines, for a multi-line array);
-* adding a widget appends a block at the end of the file;
-* removing a widget removes its block.
-
-Everything else in the file is left byte-for-byte as it was. The
-structure is found by headers, and every value is located by asking
-tomllib where it ends, so a multi-line gradient or an inline table is a
-value like any other. After each edit the whole text is parsed again,
-so an edit that would leave invalid TOML is refused rather than saved.
-
-Widgets are addressed the way the daemon names them: by plugin and the
-1-based position among that plugin's entries, which is what `label#3`
-means when a widget has no explicit id.
+Widgets are addressed as the daemon names them: plugin and 1-based
+position among that plugin's entries (`label#3`).
 """
 
 from __future__ import annotations

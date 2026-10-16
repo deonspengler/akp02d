@@ -1,29 +1,10 @@
 """bar: a reading as a filling bar, with an optional label and value.
 
-    [[widget.bar]]
-    x = 56
-    y = 400
-    width = 344
-    height = 48
-    source = "memory"
-    label = "MEM"
-    format = "{percent:.0f}%"
-    gradient = ["#22dd66", "#ffd022", "#ff3b30"]
-
-The gauge's straight cousin: a stack of these reads well on a tall
-panel where round gauges would waste the sides. Horizontal fills left
-to right, vertical bottom to top; which one is picked from the box's
-shape unless `direction` says.
-
-`color_by = "position"` (the default here) fixes the gradient along the
-bar, so a fuller bar reaches further into it; "level" paints the whole
-fill one colour picked by the value, so a nearly-full bar is red at a
-glance. `segments` splits the bar into separate cells, like an LED
-meter, and a value then moves in whole cells -- which also means a
-reading wobbling inside one cell costs no redraw at all.
-
-The track (the empty part) is drawn into the backdrop once, so a redraw
-is a paste of the fill through a mask, plus the text if it changed.
+Horizontal fills left to right, vertical bottom to top, picked from the
+box's shape unless `direction` says. `segments` splits it into cells;
+a value then moves in whole cells, so a reading wobbling inside one
+costs no redraw. The track is drawn into the backdrop once; a redraw is
+a paste of the fill through a mask, plus the text if it changed.
 """
 
 from __future__ import annotations

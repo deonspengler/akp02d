@@ -1,25 +1,17 @@
-"""The control socket: how the editor, `akp02d ctl` and scripts talk to
-a running daemon.
+"""The control socket: how the editor, `akp02d ctl` and scripts talk to a
+running daemon.
 
-A Unix socket in $XDG_RUNTIME_DIR, owner-only (0600) -- only the user who
-runs the daemon can reach it, and nothing on the network can. The
-protocol is one JSON object per line each way, so it can be driven by
-hand:
+A Unix socket in $XDG_RUNTIME_DIR, owner-only (0600), one JSON object
+per line each way:
 
     $ echo '{"cmd": "status"}' | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/akp02d.sock
-    {"ok": true, "theme": "default", ...}
 
-Requests: {"cmd": "status"}, {"cmd": "themes"}, {"cmd": "theme", "name":
-"neon", "save": false}, {"cmd": "brightness", "value": 60}, {"cmd":
-"reload"}. A reply is {"ok": true, ...} or {"ok": false, "error": "..."}.
+Commands: status, themes, theme (name, save), brightness (value) and
+reload. A reply is {"ok": true, ...} or {"ok": false, "error": ...}.
 
-The socket is also the single-instance lock: a daemon that finds a live
-one refuses to start (two would fight over the USB device), and one that
-finds a dead one -- left by a crash -- removes it.
-
-No threads. The daemon's loop used to sleep between frames; it now waits
-on this socket for the same time (`serve(timeout)`), so a command is
-handled within a frame and an idle loop costs what it did.
+The socket is also the single-instance lock: a live one stops a second
+daemon, a dead one (left by a crash) is removed. No threads: the loop
+waits on the socket between frames instead of sleeping.
 """
 
 from __future__ import annotations

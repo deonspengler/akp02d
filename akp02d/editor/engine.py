@@ -1,24 +1,13 @@
 """The preview: the daemon's own widgets, drawing into a picture.
 
-No Qt in here, so it can be tested and reused. The engine takes a
-ThemeDocument, builds a Theme from its text exactly as the daemon would
-build one from the saved file, constructs every widget, and keeps a
-panel-sized composite they paint into -- the same composite app.py
-crops its pushes from. A tick renders whichever widgets are due.
-
-Where it differs from the daemon, it differs to stay useful while a
-theme is half-made:
-
-* A bad widget does not stop the others. It is recorded with its error
-  and left blank, and the rest keep drawing.
-* A bad [theme] table keeps the last good background rather than going
-  black, and reports why.
-* A setting that only fails on this machine -- a locale that is not
-  generated here, an interface named for the panel's own computer --
-  is previewed without it and reported as a warning, since it may well
-  be right where the daemon runs.
-* Widgets are rebuilt only when their own entry changed, so editing one
-  label does not reset a graph's history.
+No Qt here. The engine builds a Theme from the document's text as the
+daemon would from the file, constructs every widget and keeps the same
+panel-sized composite. It differs where a half-made theme needs it to:
+a bad widget is reported and left blank while the rest draw; a bad
+[theme] keeps the last good background; a setting that only fails on
+this machine (a locale, an interface) is previewed without it as a
+warning; and only widgets whose entry changed are rebuilt, so a graph
+keeps its history while a label is edited.
 """
 
 from __future__ import annotations

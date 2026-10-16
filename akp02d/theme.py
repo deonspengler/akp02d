@@ -1,32 +1,12 @@
-"""Themes: a directory with a theme.toml holding orientation, a
-background, a default font, and the widgets.
+"""Themes: a folder with a theme.toml (orientation, background,
+wallpaper, default font, widgets) and the files it names.
 
-    [theme]
-    orientation = "landscape"
-    background = "#000000"        # a colour
-    wallpaper = "panel.jpg"       # optional image, drawn over it
-    font = "DejaVuSans-Bold.ttf"
-
-    [[widget.label]]
-    x = 40
-    y = 24
-    width = 600
-    height = 60
-    format = "Hello, world"
-    size = 44
-
-The plugin name is the array header, so a widget's own keys sit flat
-beside its geometry. x, y, width, height, fps, and id are reserved;
-everything else is the plugin's.
-
-Colours are whatever Pillow's ImageColor accepts -- "#rrggbb", "#rgb",
-or a CSS name like "white". Background and wallpaper are resolved to one
-image of the panel's exact size at load, and each widget keeps the crop
-of it under its own box, so clearing is a paste rather than a special
-case for pictures.
-
-Fonts are loaded once, here. Building a FreeTypeFont costs far more
-than drawing with one, so no widget is ever allowed to do it per frame.
+A widget is an array entry named after its plugin, `[[widget.label]]`,
+so its own keys sit flat beside its geometry; x, y, width, height, fps
+and id are reserved. Background and wallpaper are resolved once into a
+panel-sized image, and each widget keeps the crop under its box, so
+clearing is a paste. Fonts are loaded here, once: building a font costs
+far more than drawing with it.
 """
 
 from __future__ import annotations
@@ -203,19 +183,9 @@ def _background(
     stops: tuple[tuple[int, int, int], ...], shape: str, angle: float,
     wallpaper: str | None, path: Path, screen: tuple[int, int]
 ) -> Image.Image:
-    """The panel-sized image everything is drawn over.
-
-    A colour -- or a gradient, a colour with more stops, linear at
-    `angle` or radial -- optionally covered by a wallpaper file. Resolved to the
-    full panel size once, so the startup full-screen draw and every
-    widget's backdrop crop come from the same pixels.
-
-    Two keys rather than one because they fail differently: a bad colour
-    is a bad colour and a missing file is a missing file, where a single
-    key would have to guess which was meant. Anything richer than a flat
-    colour is a wallpaper -- an image says exactly what it is, where a
-    generated one needs a vocabulary of its own to describe.
-    """
+    """The panel-sized image everything is drawn over: a colour or
+    gradient, optionally covered by a wallpaper file. Resolved once, so
+    the full-screen draw and every widget's backdrop share its pixels."""
     base = gradient.paint(tuple(stops), screen, angle, shape)
     if wallpaper is None:
         return base

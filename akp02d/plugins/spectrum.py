@@ -1,38 +1,15 @@
-"""spectrum: an audio visualiser, currently driven by the cava process.
+"""spectrum: an audio visualiser, fed by a cava process.
 
-    [[widget.spectrum]]
-    x = 40
-    y = 200
-    width = 600
-    height = 200
-    fps = 30
-    type = "bars"                                 # bars|mirrored|segmented|radial
-    bars = 32
-    channels = "stereo"                           # stereo | mono | left | right
-    smoothing = 30                                # 0 twitchy, 100 sluggish
-    input = "pulse"                               # cava input method
-    source = "auto"                               # what that method captures
-    gradient = ["#00ff00", "#ffff00", "#ff0000"]
-    origin = "#003c46"                            # omit for none
-    peaks = true
+Cheap at 30 fps: the pipe is non-blocking, so an empty read is an
+EAGAIN and an early return; the change test compares whole units, so
+silence is free; colour is resolved once at load. After a few seconds
+of silence a peak sweeps across the bars until sound returns.
 
-What makes it affordable at 30 FPS: the pipe is non-blocking so no
-thread is needed, an empty one costs an EAGAIN and an early return; the
-change test compares levels in whole units, so silence and sub-unit
-movement are free; and colour is resolved once at load, either as a
-gradient image pasted through a mask or as a 256-entry lookup.
-
-The settings above are named by akp02d rather than passed through, so a
-cava release that renames a key costs one line here instead of an edit
-to every theme -- `smoothing` has already been `integral` and is now
-`noise_reduction`. Anything not named is still reachable:
-
-    cava = { general = { autosens = 1 }, eq = { 1 = 2, 2 = 1.5 } }
-
-goes into cava's config verbatim. Setting the same key both ways is an
-error rather than a silent winner. The frame's shape -- bars, framerate,
-and the raw 16-bit output block -- is not the theme's to change, because
-the drain expects a fixed frame size.
+The common cava settings have names of their own here, so a cava
+release that renames a key costs one line, not an edit to every theme.
+Anything else goes into cava's config verbatim through `cava = {...}`;
+setting a key both ways is an error. The frame's shape (bars, framerate,
+raw 16-bit output) is not the theme's to change.
 """
 
 from __future__ import annotations

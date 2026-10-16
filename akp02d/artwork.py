@@ -1,23 +1,10 @@
-"""Cover art: the picture behind a URL a media player hands out.
+"""Cover art: the picture behind an MPRIS `mpris:artUrl`.
 
-MPRIS players describe the cover as `mpris:artUrl`, in one of three
-forms, all handled here:
-
-* file:///path/cover.jpg -- a file on this machine (mpv, VLC, Chromium's
-  temporary copies). Read directly.
-* data:image/jpeg;base64,/9j/4AAQ... -- the picture itself, inline. Some
-  players send embedded art this way rather than writing a file.
-  Decoded directly.
-* https://i.scdn.co/image/... -- a download (Spotify, most web
-  players). Fetched on a background thread: the loop never waits on the
-  network. Until it arrives `picture()` says PENDING, and the widget
-  keeps showing what it had.
-
-Decoded pictures are kept in a small cache keyed by URL (a data: URL by
-a digest of it, since it can be megabytes), so going back to a track,
-or several widgets showing the same cover, costs nothing. A URL that
-fails is remembered as failed, and not retried until it leaves the
-cache.
+file:// URLs are read and data: URLs decoded directly; http(s) ones are
+fetched on a background thread, so the loop never waits on the network,
+and `picture()` says PENDING until they arrive. Pictures are cached by
+URL (a data: URL by its digest); a URL that failed is not retried until
+it leaves the cache.
 """
 
 from __future__ import annotations

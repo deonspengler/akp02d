@@ -1,44 +1,20 @@
 """Option schemas: what a plugin or source accepts, declared once.
 
-A plugin used to read its options imperatively -- `options.string(
-"color_by", "level")` in the middle of `__init__` -- which works, but
-leaves nothing to ask. A theme editor needs to know what a gauge accepts
-without building one; documentation wants the same list; and a default
-that lives only in a call site cannot be shown to anyone.
+Each plugin (and each source with settings) declares a `Schema` and
+reads its options through it, so the daemon, the editor and the docs
+share one list of keys, kinds, defaults and ranges:
 
-So each plugin (and each source with settings of its own) declares a
-`Schema`, and reads its options *through* it:
+    schema = Schema(
+        source(accepts=(SCALAR,), required=True),
+        choice("color_by", ("position", "level"), "level"),
+    )
+    o = self.schema.read(spec.options, spec)
 
-    @register("gauge")
-    class GaugeWidget(Widget):
-        schema = Schema(
-            source(accepts=(SCALAR,), required=True),
-            choice("color_by", ("position", "level"), "level"),
-            ...
-        )
-
-        def __init__(self, spec, theme):
-            super().__init__(spec, theme)
-            o = self.schema.read(spec.options, spec)
-            ...
-
-One declaration serves both. `read` goes through the same `Table`
-methods as before, in the order the options are declared, so type
-checks, ranges, error wording, and `reject_unknown` behave exactly as
-they did. Cross-option rules (max above min, stereo needs an even bar
-count) stay in the plugin, where they read as code rather than as a
-little language.
-
-Two things here exist only for tools and change nothing about reading:
-
-* `when` says whether an option matters given the others -- `inner`
-  only shapes a radial spectrum -- so an editor can hide what does
-  nothing. Reading still reads every option, so a stray key is still
-  refused.
-* `Auto` is a default that depends on other options or on the widget's
-  box, with a phrase describing it, so an editor can say "log for a
-  pair, else linear" instead of showing a number that would be wrong
-  half the time.
+Rules that span options (max above min, stereo needs an even bar count)
+stay in the plugin. Some fields exist only for tools and do not change
+reading: `when` (does the option matter, given the others), `Auto` (a
+default computed from the others, with a phrase saying how), `suggest`,
+`legacy`, `replaces` and `beside`.
 """
 
 from __future__ import annotations

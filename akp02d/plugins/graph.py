@@ -1,44 +1,11 @@
-"""graph: a source's recent history, as a filled trace.
+"""graph: a source's recent history, as a scrolling trace.
 
-    [[widget.graph]]
-    x = 32
-    y = 300
-    width = 400
-    height = 110
-    fps = 1
-    source = "cpu"
-    gradient = ["#11e3f5", "#fd44dd"]
-    fill = "#18243c"               # or ["#11e3f5", "#18243c"], a gradient
-    fill_alpha = 0.5
-
-A source that produces a pair -- network, with a rate in each direction
--- is drawn about a centre line instead, one direction above and the
-other below:
-
-    [[widget.graph]]
-    source = "network"
-    scale = "log"
-    max = 125000000                # a gigabit, in bytes per second
-
-Rates like those span orders of magnitude: idle traffic against a large
-download is a factor of a thousand, and on a linear scale the idle half
-of the day is a flat line. A log scale keeps every phase legible at
-once, at the cost of understating how much bigger the big one is, so it
-is the default for a pair and linear is the default for a scalar.
-
-The line is coloured by height, so a spike reads as a different colour
-without anyone having to look at an axis -- the same reasoning that made
-the gauge and the radial spectrum colour by value. Colour by horizontal
-position was tried and rejected: it encodes time, which the x-axis
-already shows, and makes equal readings look like different ones.
-
-One point is appended per render, so `fps` sets both the update rate and
-the time axis: a 400-point graph at fps = 1 is about seven minutes.
-
-This is the one widget the change test cannot make free. A scrolling
-trace moves every pixel, so it redraws on every tick that shifts it --
-though a flat line quantises to the same pixel rows and still costs
-nothing, which is why the comparison is on rows rather than on values.
+One point is added per render, so `fps` sets both the update rate and
+the time span. A pair (network) is drawn about a centre line, one
+direction each side, on a log scale by default: rates span orders of
+magnitude. The line is coloured by height, so a spike changes colour.
+The change test compares pixel rows, so a flat trace costs nothing even
+though a scrolling one redraws every tick that moves it.
 """
 
 from __future__ import annotations

@@ -90,22 +90,11 @@ class Widget:
         self.fps = spec.fps if spec.fps is not None else self.default_fps
         # The loop schedules on a period; fps is what the theme writes.
         self.period = 1.0 / self.fps
-        # The slice of the theme background under this box. Clearing is
-        # a paste of it, so a picture background costs a widget nothing
-        # extra at draw time.
-        #
-        # `background` at `alpha` opacity is laid over that slice, once,
-        # at load. At alpha 1 it is simply the widget's background
-        # colour; below that it dims whatever is behind, which is also
-        # the cheapest way to shrink a busy widget's payload -- a region
-        # push re-sends the whole rectangle every frame, and photographic
-        # detail is what JPEG spends its bytes on. Either way it costs
-        # nothing per frame, because the blend has already happened.
+        # The theme background under this box, with `background` at
+        # `alpha` blended over it once, at load: clearing is a paste.
+        # Dimming a busy wallpaper also shrinks the JPEG each push sends.
         self.backdrop = theme.backdrop(spec.rect)
-        # Both keys are read unconditionally, so reject_unknown never
-        # trips on one that happens not to be used. Naming a background
-        # and no alpha means an opaque one -- the alternative is a
-        # colour that silently does nothing.
+        # A background with no alpha is opaque, not invisible.
         base = BASE.read(spec.options, spec)
         if base.alpha:
             flat = gradient.paint(tuple(base.background or ((0, 0, 0),)), self.backdrop.size,

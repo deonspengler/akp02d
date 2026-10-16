@@ -1,22 +1,12 @@
-"""The system's volume, from pactl: one shared process per device.
+"""The system's volume, from pactl (PulseAudio, or PipeWire through
+pipewire-pulse): one shared process per device.
 
-pactl talks to PulseAudio, and to PipeWire through pipewire-pulse --
-which is what an Arch desktop runs -- so one tool covers both. It is in
-the libpulse package, usually already installed.
-
-Like media.py, nothing polls. Every source watching the same device
-shares one `Stream`: a `pactl subscribe` child that prints a line for
-every change in the sound server, read through a non-blocking pipe. On a
-change that concerns us -- the device's volume or mute, or the default
-device itself -- the stream asks once for the new state, with a short-
-lived probe it collects on a later read rather than waits for. A volume
-key held down sends a burst of events; while a probe is out, more events
-just mark one more to follow, so a burst costs two probes, not twenty.
-
-pactl's output is translated ("Mute: no" is "Stummschaltung: nein" in
-German), so every call runs in the C locale. If the sound server
-restarts, `pactl subscribe` ends; the stream starts it again a few
-seconds later rather than freezing.
+Every source watching the same device shares one `pactl subscribe`
+child. A change to that device, or to the default device, starts one
+short-lived probe, collected on a later read; events arriving meanwhile
+just mark one more to follow, so a held volume key costs two probes,
+not twenty. Calls run in the C locale (pactl's output is translated),
+and a sound server restart restarts the subscription.
 """
 
 from __future__ import annotations

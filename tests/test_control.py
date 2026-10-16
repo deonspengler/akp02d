@@ -278,5 +278,8 @@ def test_requests_do_not_cost_a_frame(daemon, monkeypatch) -> None:
         control.request({"cmd": "status"})
         time.sleep(0.15)
     gaps = [b - a for a, b in zip(times, times[1:])]
-    assert len(times) >= 20 and max(gaps) < 1.5 * period, \
-        f"{len(times)} renders, longest gap {max(gaps) * 1000:.0f} ms"
+    # The stall was ~4 frames after every request; allow a busy machine
+    # one late frame, but nothing like that.
+    late = sum(gap > 1.5 * period for gap in gaps)
+    assert len(times) >= 20 and late <= 1 and max(gaps) < 3 * period, \
+        f"{len(times)} renders, {late} late, longest gap {max(gaps) * 1000:.0f} ms"

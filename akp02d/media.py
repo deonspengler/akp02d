@@ -1,21 +1,11 @@
 """What is playing, from playerctl: one shared process per player.
 
-A now-playing block is several widgets -- a title label, an artist
-label, a progress bar -- and each owns its own source. If every one ran
-`playerctl` on every read, three widgets at 1 fps would start three
-processes a second. Instead every source following the same player
-shares one `Stream`: a single `playerctl --follow` child that prints a
-line whenever the track or the play state changes, read through a
-non-blocking pipe exactly the way the spectrum reads cava. Streams are
-counted; the last source to let go stops the child.
-
-Position is the one thing playerctl does not announce as it changes --
-it would be an event a second for nothing. So the stream notes the
-position and the time at each event and, while playing, counts forward
-on its own. Every few seconds it also asks once for the whole state (a
-short-lived `playerctl metadata`, collected on a later read, never
-waited for), which corrects for seeks and drift -- and for a pause or
-resume, should a playerctl version not report one as it happens.
+Every source following the same player shares one `Stream`, a
+`playerctl --follow` child read through a non-blocking pipe; the last
+source to let go stops it. Position is not announced as it changes, so
+the stream counts forward while playing, and every few seconds collects
+a short-lived `playerctl metadata` (never waited for) to correct seeks,
+drift and missed pauses.
 """
 
 from __future__ import annotations

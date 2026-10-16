@@ -1,45 +1,13 @@
-"""image: a picture from the theme's folder, still or animated.
+"""image: a picture from the theme's folder, still or animated, or a
+source's picture (now_playing's cover art) with `path` as the fallback.
 
-    [[widget.image]]
-    x = 16
-    y = 40
-    width = 160
-    height = 160
-    path = "logo.png"
-    fit = "contain"          # cover | stretch | none
-    align = "center"         # top, bottom-left, ...
-    radius = 12              # rounded corners
-    opacity = 1.0
-
-`path` is relative to the theme's folder, like the wallpaper, so a theme
-carries its pictures with it. Transparency is honoured: a PNG with an
-alpha channel sits over the wallpaper, not in a box.
-
-Or the picture comes from a source -- `source = "now_playing"` shows the cover
-of what is playing, whether the player hands it over as a file, a
-download, or inline base64 (see artwork.py). `path` is then the picture
-shown while there is no cover; without one, the background shows. A
-new cover that is still downloading leaves the old one up until it
-arrives, rather than flashing the fallback between tracks. A paused
-track counts as nothing playing: the cover returns when it resumes.
-
-How the picture meets the box:
-
-* contain -- all of it, as large as fits; the spare room shows the
-  background, and `align` says which side the picture keeps to.
-* cover -- fills the box, cropping what does not fit; `align` says which
-  part is kept.
-* stretch -- fills the box exactly, ignoring the picture's shape.
-* none -- drawn at its own size, placed by `align`, cropped by the box.
-
-`scaling = "pixel"` scales by repeating pixels rather than smoothing
-them, which keeps pixel art and small icons crisp.
-
-An animated GIF, WebP or PNG plays at its own frame timing, looping. Its
-frames are fitted and laid over the background once, at load, so playing
-is a paste per frame -- and a still picture is drawn once and costs
-nothing after. Frames take memory at the box's size; a long animation
-in a big box keeps an even spread of them within MAX_BYTES, and says so.
+Fitting (contain, cover, stretch, none), alignment, corner radius and
+opacity are applied once at load, over the background, so a still
+picture costs nothing after and an animation is one paste per frame.
+Frames are kept at the box's size; a long animation in a big box keeps
+an even spread of them within MAX_BYTES, and says so. A cover still
+downloading leaves the previous one up rather than flashing the
+fallback.
 """
 
 from __future__ import annotations
