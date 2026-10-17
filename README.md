@@ -86,6 +86,11 @@ Settings for this machine, such as brightness and an upside-down panel
 If akp02d cannot open the panel, unplug it and plug it back in: the
 access rule installed with akp02d applies to newly connected devices.
 
+## Use of AI
+
+AI was used to generate images in this project and to assist with some
+of the code. Any code written by AI was checked and reviewed by a human.
+
 ## Licence
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
