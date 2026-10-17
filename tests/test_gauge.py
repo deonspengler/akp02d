@@ -142,10 +142,17 @@ def test_no_glide_jumps() -> None:
 
 
 def test_scale_numbers() -> None:
-    assert _number(0.8, True) == "80"                 # a fraction numbered as percent
-    assert _number(1.5, True) == "150"                # past 1.0 too: a boosted volume
-    assert _number(60.0, False) == "60"
-    assert _number(2.5, False) == "2.5"
+    from akp02d import sources
+
+    fraction, degrees, rate = sources.CpuSource, sources.TemperatureSource, sources.NetworkSource
+    assert _number(0.8, fraction) == "80"             # a fraction numbered as percent
+    assert _number(1.5, fraction) == "150"            # past 1.0 too: a boosted volume
+    assert _number(60.0, degrees) == "60"
+    assert _number(2.5, degrees) == "2.5"
+    assert _number(1024.0, rate) == "1K"              # a rate, compactly
+    assert _number(10_700.0, rate) == "10K"
+    assert _number(1_150_000.0, rate) == "1.1M"
+    assert _number(125_000_000.0, rate) == "119M"
 
 
 def test_style_hides_what_it_does_not_use() -> None:

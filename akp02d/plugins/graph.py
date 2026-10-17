@@ -1,30 +1,36 @@
 """graph: a source's recent history, as a scrolling trace.
 
 One point is added per render, so `fps` sets both the update rate and
-the time span. A pair (network) is drawn about a centre line, one
-direction each side, on a log scale by default: rates span orders of
-magnitude. The line is coloured by height, so a spike changes colour.
+the time span. A source with two directions (network) can be drawn as
+two traces: mirrored about a centre line, one direction each side, or
+overlaid on one axis. The line is coloured by height, so a spike changes
+colour.
 The change test compares pixel rows, so a flat trace costs nothing even
 though a scrolling one redraws every tick that moves it.
 """
 
 from __future__ import annotations
 
-import math
 from collections import deque
 from typing import TYPE_CHECKING
 
 from PIL import Image, ImageDraw
 
-from .. import gradient, sources
+from .. import gradient, scale, sources
 from ..schema import Auto, Schema, choice, color, colors, integer, number, source
 from ..textfx import READING_SHAPES, gradient_options
 from .base import Widget, WidgetSpec, register
 
+STYLES = ("line", "mirrored", "overlaid")
 
-def _pair(values) -> bool:
-    found = values.get("source")
-    return getattr(found, "kind", None) == sources.PAIR
+
+def _has_pair(values) -> bool:
+    return getattr(values.get("source"), "pair", None) is not None
+
+
+def _two(values) -> bool:
+    return values.get("style") in ("mirrored", "overlaid")
+
 
 if TYPE_CHECKING:
     from ..theme import Theme
@@ -35,14 +41,21 @@ class GraphWidget(Widget):
     """A source's recent history, as a filled trace."""
 
     default_fps = 1.0
-    summary = "Recent history as a scrolling trace; a pair (network) mirrors"
+    summary = "Recent history as a scrolling trace, or two for up and down"
     schema = Schema(
-        source(accepts=(sources.SCALAR, sources.PAIR), required=True),
+        source(accepts=(sources.SCALAR,), required=True),
+        choice("style", STYLES,
+               Auto(lambda v, spec: "mirrored" if _has_pair(v) else "line",
+                    "mirrored for up and down (network), else line"),
+               group="Line",
+               doc="line: one trace. mirrored: up above a centre line, down "
+                   "below. overlaid: up and down on one axis. The last two "
+                   "need a source with two directions (network)"),
         colors("line_color", ("#11e3f5", "#66f0ff"), group="Line",
-               doc="One colour, or several for a gradient; for a pair, the "
-                   "upper (up) trace"),
-        colors("line_color_down", ("#fd44dd", "#ff99ee"), group="Line", when=_pair,
-               doc="The lower (down) trace of a pair, laid out like line_color"),
+               doc="One colour, or several for a gradient; mirrored or "
+                   "overlaid, the up trace"),
+        colors("line_color_down", ("#fd44dd", "#ff99ee"), group="Line", when=_two,
+               doc="The down trace, laid out like line_color"),
         *gradient_options("line_color", group="Line", subject="the graph",
                           shapes=READING_SHAPES, default_shape="scale"),
         colors("fill", None, group="Fill",
@@ -59,26 +72,13 @@ class GraphWidget(Widget):
                 doc="How many readings fit across; with fps this sets the "
                     "time span"),
         color("origin", None, group="Line",
-              doc="The baseline (or centre line for a pair); empty for none"),
-        choice("scale", ("linear", "log"),
-               Auto(lambda v, spec: "log" if _pair(v) else "linear",
-                    "log for a pair, else linear"),
-               group="Data"),
-        number("min", Auto(lambda v, spec: 1024.0 if v.scale == "log"
-                           else getattr(v.get("source"), "range", (0.0, 1.0))[0],
-                           "1024 on a log scale, else the source's usual low"),
-               group="Data",
-               doc="Bottom of the range; on a log scale, what counts as "
-                   "nothing"),
-        number("max", Auto(lambda v, spec: 125_000_000.0 if _pair(v)
-                           else getattr(v.get("source"), "range", (0.0, 1.0))[1],
-                           "a gigabit/s for a pair, else the source's usual high"),
-               group="Data", doc="Top of the range"),
+              doc="The baseline (the centre line when mirrored); empty for none"),
+        *scale.options(),
     )
 
     __slots__ = ("_colours", "_fill", "_fill_alpha", "_history", "_inset",
-                 "_last", "_line", "_line_draw", "_line_width", "_log",
-                 "_mirrored", "_range", "_second",
+                 "_last", "_line", "_line_draw", "_line_width",
+                 "_mirrored", "_pair", "_scale", "_second",
                  "_source")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
@@ -86,7 +86,12 @@ class GraphWidget(Widget):
         options = spec.options
         o = self.schema.read(options, spec)
         self._source = o.source
-        self._mirrored = self._source.kind == sources.PAIR
+        pair = getattr(self._source, "pair", None)
+        if o.style != "line" and pair is None:
+            raise options.fail("style", "line for a source with one reading; mirrored "
+                               "and overlaid need two directions (network)", o.style)
+        self._pair = None if o.style == "line" else pair
+        self._mirrored = o.style == "mirrored"
         stops = o.line_color
         down_stops = o.line_color_down
         # Painted once: the trace only changes which part of it shows.
@@ -113,22 +118,15 @@ class GraphWidget(Widget):
         # A source reporting outside 0..1 -- a rate, a temperature --
         # needs the range it is drawn against; that is a display
         # decision, so it belongs on the widget rather than the source.
-        self._log = o.scale == "log"
-        # For a log scale `min` is the floor -- what counts as nothing --
-        # rather than the bottom of a range, so it cannot be zero.
-        low, high = o.min, o.max
-        if high <= low:
-            raise options.fail("max", f"greater than min ({low})", high)
-        if self._log and low <= 0:
-            raise options.fail("min", "greater than zero on a log scale", low)
+        self._scale = scale.Scale.read(o, options)
         options.reject_unknown()
-        self._range = (low, high - low)
 
         self._history: deque[float] = deque(maxlen=points)
-        self._second: deque[float] = deque(maxlen=points) if self._mirrored else None
+        self._second: deque[float] | None = (
+            deque(maxlen=points) if self._pair is not None else None)
         self._inset = self._line_width  # keep the stroke inside the box
         # Each trace's colours, made once: by height (from the centre line
-        # out, for a pair), or across the box. By level there is no image;
+        # out, when mirrored), or across the box. By level there is no image;
         # the line takes the colour of its newest reading.
         shape = o.line_color_shape if len(stops) > 1 or len(down_stops) > 1 else "scale"
         where = "centre" if self._mirrored else "up"
@@ -142,31 +140,23 @@ class GraphWidget(Widget):
             return None, gradient.lut(trace_stops)
 
         self._colours = [colouring(stops)]
-        if self._mirrored:
+        if self._pair is not None:
             self._colours.append(colouring(down_stops))
         # One mask and one draw handle for the widget's lifetime.
         self._line = Image.new("L", (width, height), 0)
         self._line_draw = ImageDraw.Draw(self._line)
         self._last: tuple[int, ...] | None = None
 
-    def _fraction(self, value: float) -> float:
-        low, size = self._range
-        if self._log:
-            if value <= low:
-                return 0.0
-            return min(1.0, math.log(value / low) / math.log((low + size) / low))
-        return min(1.0, max(0.0, (value - low) / size))
-
     def _rows(self, history, baseline: int, span: int, sign: int) -> tuple[int, ...]:
         """History as pixel rows -- the unit the change test counts."""
-        return tuple(
-            baseline + sign * int(self._fraction(value) * span) for value in history
-        )
+        fraction = self._scale.fraction
+        return tuple(baseline + sign * int(fraction(value) * span) for value in history)
 
     def _append(self, value, fields) -> None:
-        if self._mirrored:
-            self._history.append(fields.get("up", 0.0))
-            self._second.append(fields.get("down", 0.0))
+        if self._pair is not None:
+            upper, lower = self._pair
+            self._history.append(fields.get(upper, 0.0))
+            self._second.append(fields.get(lower, 0.0))
         else:
             self._history.append(value if value is not None else 0.0)
 
@@ -199,10 +189,10 @@ class GraphWidget(Widget):
             baseline = middle
         else:
             span = height - 1 - self._inset * 2
-            series = [
-                (self._rows(self._history, height - 1 - self._inset, span, -1),
-                 self._history)
-            ]
+            bottom = height - 1 - self._inset
+            series = [(self._rows(self._history, bottom, span, -1), self._history)]
+            if self._second is not None:      # overlaid: both on one axis
+                series.append((self._rows(self._second, bottom, span, -1), self._second))
             baseline = height - 1
 
         state = tuple(rows for rows, _ in series)
@@ -227,7 +217,8 @@ class GraphWidget(Widget):
             else:
                 self._line_draw.point(points, fill=255)
             if image is None:
-                image = gradient.colour_at(lut, self._fraction(history[-1]) if history else 0.0)
+                image = gradient.colour_at(
+                    lut, self._scale.fraction(history[-1]) if history else 0.0)
             self.surface.paste(image, (0, 0), self._line)
         return True
 

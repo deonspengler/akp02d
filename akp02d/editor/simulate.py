@@ -114,11 +114,6 @@ def scalar_fields(name: str, fraction: float, real: Any) -> dict[str, Any]:
     return fields
 
 
-def pair_fields(up: float, down: float) -> dict[str, Any]:
-    return {"up": up, "down": down, "up_kb": up / 1024, "down_kb": down / 1024,
-            "up_mb": up / 2**20, "down_mb": down / 2**20}
-
-
 class StandIn:
     """Wraps a real source and answers with simulated readings.
 
@@ -127,13 +122,17 @@ class StandIn:
     with history the moment it is built.
     """
 
-    __slots__ = ("formats", "kind", "name", "pictures", "range", "real")
+    __slots__ = ("floor", "formats", "kind", "name", "pair", "pictures", "range", "real",
+                 "scale")
 
     def __init__(self, real: sources.Source, name: str) -> None:
         self.real = real
         self.name = name
         self.kind = real.kind
         self.range = getattr(real, "range", (0.0, 1.0))
+        self.scale = getattr(real, "scale", "linear")
+        self.floor = getattr(real, "floor", None)
+        self.pair = getattr(real, "pair", None)
         self.formats = getattr(real, "formats", ())
         self.pictures = getattr(real, "pictures", False)
 
@@ -171,7 +170,7 @@ class StandIn:
             # log-scale graph is for.
             down = 10 ** (3.2 + 3.6 * _wave(now, 23, 9.1, 3.3) ** 3)
             up = 10 ** (2.8 + 2.6 * _wave(now + 40, 17, 6.7, 2.9) ** 3)
-            return None, pair_fields(up, down)
+            return sources.network_fields(up, down, getattr(self.real, "traffic", "total"))
         if name == "temperature":
             real = self.real
             if getattr(real, "unavailable", None) is None:

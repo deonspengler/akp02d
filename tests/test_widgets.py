@@ -143,7 +143,7 @@ def test_bar_text_above_takes_room() -> None:
 
 def test_bar_range_follows_the_source() -> None:
     bar = build("bar", {"source": "cpu", "min": 0.2, "max": 0.6})
-    assert bar._range == (0.2, pytest.approx(0.4))
+    assert (bar._scale.low, bar._scale.high, bar._scale.log) == (0.2, 0.6, False)
 
 
 # -- text sources --

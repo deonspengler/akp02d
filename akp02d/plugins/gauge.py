@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-from .. import gradient, sources
+from .. import gradient, scale, sources
 from ..schema import (
     Auto, Schema, boolean, choice, color, colors, font, integer, number, source,
     string, text_format, zones,
@@ -37,12 +37,6 @@ STYLES = ("arc", "dial", "meter")
 SS = 4
 # How often a gliding needle is redrawn while it moves.
 ANIM_FPS = 30.0
-
-
-def _range(values) -> tuple[float, float]:
-    """The source's own usual range: 0..1 for fractions, degrees for a
-    temperature."""
-    return getattr(values.get("source"), "range", (0.0, 1.0))
 
 
 def _style(values) -> str:
@@ -90,10 +84,7 @@ class GaugeWidget(Widget):
     summary = "A reading as a swept arc, a needle dial, or an analog meter"
     schema = Schema(
         source(accepts=(sources.SCALAR,), required=True),
-        number("min", Auto(lambda v, spec: _range(v)[0], "the source's usual low"),
-               group="Data", doc="Value drawn as empty"),
-        number("max", Auto(lambda v, spec: _range(v)[1], "the source's usual high"),
-               group="Data", doc="Value drawn as full"),
+        *scale.options(),
         text_format("format", None, group="Data",
                     doc="Value text, filled from the source's fields"),
         choice("style", STYLES, "arc", group="Gauge",
@@ -134,7 +125,8 @@ class GaugeWidget(Widget):
         color("rim", _per(None, "#3c4452", "#5a4628", "a shade of the face"),
               group="Scale", when=lambda v: not _is_arc(v)),
         integer("ticks", _per(0, 5, 5, "0 on an arc; 5 on dial and meter"), 0, 50,
-                group="Scale", doc="Major divisions of the scale; 0 for none"),
+                group="Scale", doc="Major divisions of the scale; 0 for none. "
+                                   "On a log scale, one at each power of ten instead"),
         integer("minor_ticks", 4, 0, 20, group="Scale", when=_has_ticks,
                 doc="Small marks between two major ones"),
         boolean("numbers", _per(False, True, True, "off on an arc; on otherwise"),
@@ -195,7 +187,7 @@ class GaugeWidget(Widget):
     __slots__ = ("_centre", "_colours", "_ring", "_round_tip", "_draw", "_font", "_format",
                  "_glide", "_hub", "_hub_fill", "_label", "_label_fill", "_label_font",
                  "_label_xy", "_last", "_last_time", "_lut", "_needle", "_needle_lut",
-                 "_next_read", "_radius", "_range", "_read_period", "_shadow", "_shown",
+                 "_next_read", "_radius", "_read_period", "_scale", "_shadow", "_shown",
                  "_source", "_start", "_style", "_sweep", "_target", "_text_anchor", "_text_fill", "_text_now",
                  "_thickness", "_track", "_value_xy", "animating")
 
@@ -205,10 +197,7 @@ class GaugeWidget(Widget):
         o = self.schema.read(options, spec)
         self._source = o.source
         self._style = o.style
-        low, high = o.min, o.max
-        if high <= low:
-            raise options.fail("max", f"greater than min ({low})", high)
-        self._range = (low, high - low)
+        self._scale = scale.Scale.read(o, options)
         # Angles as Pillow has them: degrees clockwise from three o'clock.
         # The sweep is signed -- negative runs counterclockwise -- so a
         # point along the scale is always start + sweep * fraction.
@@ -311,9 +300,9 @@ class GaugeWidget(Widget):
         if self._style == "arc":
             ring = self._ring
             face.paste(self._track, (0, 0), ring.mask)
-            low, size = self._range
+            fraction = self._scale.fraction
             for zone_low, zone_high, colour in o.zones:
-                within = ring.between((zone_low - low) / size, (zone_high - low) / size)
+                within = ring.between(fraction(zone_low), fraction(zone_high))
                 face.paste(_mix(self._track, colour, 0.6), (0, 0), within)
         layer = Image.new("RGBA", (width * SS, height * SS), (0, 0, 0, 0))
         big = ImageDraw.Draw(layer)
@@ -358,11 +347,9 @@ class GaugeWidget(Widget):
             drew = True
             number_font = theme.font(o.font, o.number_size * SS) if o.numbers else None
             colour = (*o.scale_color, 255)
-            count = o.ticks * (o.minor_ticks + 1)
-            for index in range(count + 1):
-                fraction = index / count
+            rate = bool(getattr(self._source, "floor", None))
+            for fraction, is_major, value in self._scale.marks(o.ticks, o.minor_ticks, rate):
                 angle = self._start + self._sweep * fraction
-                is_major = index % (o.minor_ticks + 1) == 0
                 length = major if is_major else minor
                 if outer >= 0:
                     a, b = _point(cx, cy, outer, angle), _point(cx, cy, outer - length, angle)
@@ -372,11 +359,10 @@ class GaugeWidget(Widget):
                 big.line((a, b), fill=colour if is_major else (*o.scale_color, 170),
                          width=thick)
                 if is_major and number_font is not None:
-                    value = self._range[0] + self._range[1] * fraction
                     at = numbers_at if numbers_at is not None else \
                         r + major + o.number_size * SS * 0.9
                     x, y = _point(cx, cy, at, angle)
-                    big.text((x, y), _number(value, getattr(self._source, "range", None) == (0.0, 1.0)), font=number_font,
+                    big.text((x, y), _number(value, self._source), font=number_font,
                              fill=self._zone_colour(o.zones, value, colour), anchor="mm")
         if self._style != "arc" and self._label:
             drew = True
@@ -417,9 +403,7 @@ class GaugeWidget(Widget):
         return default
 
     def _angle(self, value: float) -> float:
-        low, size = self._range
-        fraction = min(1.0, max(0.0, (value - low) / size))
-        return self._start + self._sweep * fraction
+        return self._start + self._sweep * self._scale.fraction(value)
 
     # -- per frame --
 
@@ -438,8 +422,7 @@ class GaugeWidget(Widget):
         if now >= self._next_read:
             value, fields = self._source.read(now)
             self._next_read = now + self._read_period if self._glide > 0 else 0.0
-            low, size = self._range
-            self._target = min(1.0, max(0.0, ((value or 0.0) - low) / size))
+            self._target = self._scale.fraction(value)
             self._text_now = self._text(fields)
             if self._last_time is None:
                 self._shown = self._target      # no swing in from zero at load
@@ -653,11 +636,14 @@ def _mix(a, b, t: float):
     return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
 
 
-def _number(value: float, fractional: bool) -> str:
+def _number(value: float, source) -> str:
     """A scale number. A reading in fractions (cpu, memory, volume: the
     source's own range is 0..1) is numbered as a percentage -- whatever
-    min and max the gauge sets, so a volume to 1.5 reads 0..150."""
-    if fractional:
+    min and max the gauge sets, so a volume to 1.5 reads 0..150. A rate
+    (it has a log floor) is numbered compactly: 10K, 1.1M."""
+    if getattr(source, "floor", None):
+        return scale.compact(value)
+    if getattr(source, "range", None) == (0.0, 1.0):
         value *= 100
     if abs(value - round(value)) < 1e-6:
         return str(int(round(value)))

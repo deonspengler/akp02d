@@ -23,16 +23,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .schema import Schema, boolean, string
+from .schema import Schema, boolean, choice, string
 from .table import SettingsError, Table
 
 # What a source produces, and therefore which shapes can draw it.
-SCALAR, TEXT, MOMENT, PAIR = "scalar", "text", "moment", "pair"
+SCALAR, TEXT, MOMENT = "scalar", "text", "moment"
 # Not a kind of its own: what a widget that shows pictures accepts. Any
 # source whose fields include an `art` picture (see `pictures`) fits.
 PICTURE = "picture"
-_KIND_WORDS = {SCALAR: "a number", TEXT: "text", MOMENT: "a time", PAIR: "a pair of rates",
-               PICTURE: "a picture"}
+_KIND_WORDS = {SCALAR: "a number", TEXT: "text", MOMENT: "a time", PICTURE: "a picture"}
 
 
 class SourceError(SettingsError):
@@ -58,6 +57,14 @@ class Source:
     # The range a widget draws `value` against unless the theme sets its
     # own min and max. Fractions by default; a temperature is degrees.
     range: tuple[float, float] = (0.0, 1.0)
+    # How a widget draws it unless the theme says (see scale.py): "log"
+    # for a reading spanning orders of magnitude, with `floor` as what
+    # counts as nothing.
+    scale = "linear"
+    floor: float | None = None
+    # Two readings taken together, as (upper, lower) field names, for a
+    # graph that shows both (mirrored or overlaid); None for one.
+    pair: tuple[str, str] | None = None
     # Ready-made format strings, the first used when a label names the
     # source but no format. Offered by editors as suggestions.
     formats: tuple[str, ...] = ("{value}",)
@@ -74,12 +81,11 @@ class Source:
         """Let go of anything held open. Most sources hold nothing."""
 
     def read(self, now: float) -> tuple[float | None, dict[str, Any]]:
-        """Return (value in 0..1 or None, fields for formatting).
+        """Return (value in `range`, or None, and fields for formatting).
 
-        A pair source leaves value None and puts `up` and `down` in
-        fields: the two are read together, from one sample, because
-        reading them separately would straddle a delta boundary and let
-        them disagree about the same instant.
+        A source with a `pair` puts both in fields too, read together
+        from one sample: read separately they would straddle a delta
+        boundary and disagree about the same instant.
         """
         raise NotImplementedError
 
@@ -199,27 +205,56 @@ class DiskSource(Source):
         }
 
 
+TRAFFIC = ("total", "down", "up")
+
+
+def network_fields(up: float, down: float, traffic: str) -> tuple[float, dict[str, Any]]:
+    """(value, fields) for rates in bytes per second: the value is the
+    direction `traffic` picks, the fields have all three."""
+    fields: dict[str, Any] = {}
+    for name, rate in (("up", up), ("down", down), ("total", up + down)):
+        fields[name] = rate
+        fields[f"{name}_kb"] = rate / 1024
+        fields[f"{name}_mb"] = rate / 2**20
+    fields["value"] = fields[traffic]
+    return fields["value"], fields
+
+
 class NetworkSource(Source):
     """Bytes per second in each direction since this source's last read.
 
     Reads `interface`; the default sums every interface except loopback,
-    which is what "how busy is my network" usually means. Rates are
-    unbounded, so a graph showing this wants a log scale.
+    which is what "how busy is my network" usually means. The value is
+    the direction `traffic` picks; a graph can show up and down at once.
+    Rates are unbounded and span orders of magnitude, so widgets draw
+    them on a log scale by default.
     """
 
-    kind = PAIR
+    kind = SCALAR
+    range = (0.0, 125_000_000.0)    # a gigabit/s
+    scale = "log"
+    floor = 1024.0                  # 1 KB/s: anything less is idle
+    pair = ("up", "down")
     schema = Schema(
         string("interface", None, group="Data",
                doc="One interface, e.g. eno1; leave empty to sum every "
                    "interface except loopback",
                suggest=lambda values: interface_choices()),
+        choice("traffic", TRAFFIC, "total", group="Data",
+               doc="Which direction the reading is: both added up, received "
+                   "(down) or sent (up). A mirrored or overlaid graph shows "
+                   "up and down whatever this says"),
     )
-    fields = ("up", "down", "up_kb", "down_kb", "up_mb", "down_mb")
-    summary = "Bytes per second sent (up) and received (down)"
-    formats = ("↓{down_mb:.1f} ↑{up_mb:.1f} MB/s", "↓{down_kb:.0f} KB/s", "↑{up_kb:.0f} KB/s",)
+    fields = ("value", "total", "down", "up", "total_kb", "down_kb", "up_kb",
+              "total_mb", "down_mb", "up_mb")
+    summary = "Bytes per second received (down), sent (up), or both"
+    formats = ("↓{down_mb:.1f} ↑{up_mb:.1f} MB/s", "{total_mb:.1f} MB/s",
+               "↓{down_kb:.0f} KB/s", "↑{up_kb:.0f} KB/s",)
 
     def __init__(self, options: Table, widget: str) -> None:
-        self._name = self.schema.read(options).interface
+        o = self.schema.read(options)
+        self._name = o.interface
+        self.traffic = o.traffic
         self._previous = _net_bytes(self._name)
         self._when: float | None = None
         if self._name is not None and self._previous == (0, 0):
@@ -228,7 +263,7 @@ class NetworkSource(Source):
                 f"widget {widget!r}: no interface {self._name!r}; found: {known}"
             )
 
-    def read(self, now: float) -> tuple[None, dict[str, Any]]:
+    def read(self, now: float) -> tuple[float, dict[str, Any]]:
         received, sent = _net_bytes(self._name)
         elapsed = 0.0 if self._when is None else now - self._when
         self._when = now
@@ -238,14 +273,7 @@ class NetworkSource(Source):
             down = max(0.0, (received - self._previous[0]) / elapsed)
             up = max(0.0, (sent - self._previous[1]) / elapsed)
         self._previous = (received, sent)
-        return None, {
-            "up": up,
-            "down": down,
-            "up_kb": up / 1024,
-            "down_kb": down / 1024,
-            "up_mb": up / 2**20,
-            "down_mb": down / 2**20,
-        }
+        return network_fields(up, down, self.traffic)
 
 
 class TemperatureSource(Source):

@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING
 
 from PIL import Image, ImageDraw
 
-from .. import gradient, sources
+from .. import gradient, scale, sources
 from ..schema import (
-    Auto, Schema, choice, color, colors, font, integer, number, source, string,
+    Auto, Schema, choice, color, colors, font, integer, source, string,
     text_format,
 )
 from ..textfx import READING_SHAPES, gradient_options
@@ -24,10 +24,6 @@ from .base import PluginError, Widget, WidgetSpec, register
 
 if TYPE_CHECKING:
     from ..theme import Theme
-
-
-def _range(values) -> tuple[float, float]:
-    return getattr(values.get("source"), "range", (0.0, 1.0))
 
 
 def _has_text(values) -> bool:
@@ -42,10 +38,7 @@ class BarWidget(Widget):
     summary = "A reading as a filling bar, horizontal or vertical"
     schema = Schema(
         source(accepts=(sources.SCALAR,), required=True),
-        number("min", Auto(lambda v, spec: _range(v)[0], "the source's usual low"),
-               group="Data", doc="Value drawn as empty"),
-        number("max", Auto(lambda v, spec: _range(v)[1], "the source's usual high"),
-               group="Data", doc="Value drawn as full"),
+        *scale.options(),
         text_format("format", None, group="Data",
                     doc="Value text, filled from the source's fields"),
         choice("direction", ("horizontal", "vertical"),
@@ -77,7 +70,7 @@ class BarWidget(Widget):
 
     __slots__ = ("_bar", "_cells", "_draw", "_fill_image", "_font",
                  "_format", "_label", "_label_fill", "_last", "_length", "_lut",
-                 "_mask", "_mask_draw", "_radius", "_range", "_source", "_text_at",
+                 "_mask", "_mask_draw", "_radius", "_scale", "_source", "_text_at",
                  "_text_fill", "_text_mode", "_vertical")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
@@ -85,10 +78,7 @@ class BarWidget(Widget):
         options = spec.options
         o = self.schema.read(options, spec)
         self._source = o.source
-        low, high = o.min, o.max
-        if high <= low:
-            raise options.fail("max", f"greater than min ({low})", high)
-        self._range = (low, high - low)
+        self._scale = scale.Scale.read(o, options)
         self._format = o.format
         self._label = o.label
         self._vertical = o.direction == "vertical"
@@ -210,8 +200,7 @@ class BarWidget(Widget):
 
     def render(self, now: float) -> bool:
         value, fields = self._source.read(now)
-        low, size = self._range
-        fraction = min(1.0, max(0.0, ((value or 0.0) - low) / size))
+        fraction = self._scale.fraction(value)
         if len(self._cells) > 1:
             filled = round(fraction * len(self._cells))  # whole cells
         else:
