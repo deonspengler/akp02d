@@ -88,8 +88,9 @@ access rule installed with akp02d applies to newly connected devices.
 
 ## Use of AI
 
-AI was used to generate images in this project and to assist with some
-of the code. Any code written by AI was checked and reviewed by a human.
+AI was used to generate the default theme's wallpaper and to assist with
+some of the code. Any code written by AI was checked and reviewed by a
+human, and akp02d is tested on a real panel.
 
 ## Licence
 
