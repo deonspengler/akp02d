@@ -375,8 +375,11 @@ class App:
                     )
 
             if box is not None:
-                # Already colour-safe: every widget's box is (validated at
-                # load), and so is any box covering only such boxes.
+                # Widened to whole JPEG blocks of the buffer, so a widget's
+                # edge pixels encode the same whether it goes out alone or
+                # with a neighbour; otherwise they flicker as the two
+                # alternate. This also keeps the region colour-safe.
+                box = layout.on_block_grid(box, self.theme.orientation, self.panel.inverted)
                 mark = counter()
                 jpeg = panel.encode_region(screen.crop(box))
                 stats.encode_sec += counter() - mark

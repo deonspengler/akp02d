@@ -102,6 +102,50 @@ def nearest_aligned(
     )
 
 
+_BLOCK = 8          # a JPEG block, at the 4:4:4 the driver encodes with
+
+
+def _snap(start: int, end: int, length: int, reflected: bool) -> tuple[int, int]:
+    """Widen [start, end) on one axis to whole blocks of the buffer.
+
+    The buffer's coordinate is the caller's, or (length - coordinate)
+    when the axis is reflected, so the grid is laid from that end.
+    """
+    if reflected:
+        start, end = _snap(length - end, length - start, length, False)
+        return length - end, length - start
+    return start - start % _BLOCK, min(length, -(-end // _BLOCK) * _BLOCK)
+
+
+def on_block_grid(
+    box: tuple[int, int, int, int], orientation: Orientation, inverted: bool
+) -> tuple[int, int, int, int]:
+    """`box` (left, top, right, bottom) widened to the buffer's JPEG blocks.
+
+    A region is JPEG-encoded in 8x8 blocks counted from its own corner.
+    A widget pushed alone and the same widget pushed as part of a larger
+    region would otherwise cut its pixels into different blocks, mixing
+    in different neighbours, so its edges would come out slightly
+    different each time and flicker as pushes alternate. On one grid
+    for the whole buffer, a block holds the same pixels however large
+    the region, and encodes to the same result.
+
+    Also colour-safe: the buffer's x then always starts on a multiple of
+    8 (SHORT_AXIS_ALIGN_*, residue 0).
+    """
+    left, top, right, bottom = box
+    width, height = screen_size(orientation)
+    if orientation is Orientation.LANDSCAPE:
+        # Caller y is the buffer's x (reflected unless inverted); caller
+        # x is the buffer's y (reflected when inverted).
+        left, right = _snap(left, right, width, inverted)
+        top, bottom = _snap(top, bottom, height, not inverted)
+    else:
+        left, right = _snap(left, right, width, inverted)
+        top, bottom = _snap(top, bottom, height, inverted)
+    return left, top, right, bottom
+
+
 def validate(
     rects: Iterable[tuple[str, Rect]],
     screen: tuple[int, int],
