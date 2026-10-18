@@ -18,7 +18,7 @@ id = "hostname"
 
 [[widget.label]]
 x = 80
-y = 90
+y = 88
 width = 302
 height = 46
 source = "time"
@@ -30,7 +30,7 @@ id = "time"
 
 [[widget.label]]
 x = 96
-y = 138
+y = 134
 width = 270
 height = 30
 source = "time"
@@ -41,32 +41,32 @@ font = "LiberationMono-Bold.ttf"
 id = "date"
 
 [[widget.gauge]]
-x = 56
+x = 64
 y = 190
-width = 160 
+width = 160
 height = 160
 fps = 1 
 source = "memory"
 label = "MEM"
-format = "{used_gb:.0f}/{total_gb:.0f}G"
+format = "{used_gb:.0f}G/{total_gb:.0f}G"
 label_size = 24
-size = 14
+size = 18
 fill = ["#22dd66", "#ffd022", "#ff3b30"]
 fill_shape = "scale"
 id = "memory"
 
 [[widget.gauge]]
-x = 248
+x = 239
 y = 190
-width = 160 
-height = 160 
+width = 160
+height = 160
 fps = 1 
 source = "disk"
 path = "/" 
 label = "DISK"
 format = "{free_gb:.0f}G free"
 label_size = 22
-size = 13
+size = 18
 fill = ["#22dd66", "#ffd022", "#ff3b30"]
 fill_shape = "scale"
 id = "disk"
@@ -100,7 +100,7 @@ points = 75
 id = "network"
 
 [[widget.label]]
-x = 152
+x = 161
 y = 570
 width = 158
 height = 40
@@ -124,7 +124,7 @@ id = "cpu"
 
 [[widget.spectrum]]
 x = 72
-y = 772
+y = 760
 width = 318
 height = 318
 fps = 30

@@ -140,11 +140,12 @@ def test_changing_source_drops_a_format_that_no_longer_fits(app, tmp_path: Path)
         pump(app, 0.2)
         entry = window.document.entry(Ref("gauge", 1))
         assert entry["source"] == "memory" and entry["format"].startswith("{used_gb")
+        original = entry["format"]
         # A format the new source can fill stays: disk has used_gb and
         # total_gb too.
         window._widget_edited(Ref("gauge", 1), "source", "disk")
         pump(app, 0.2)
-        assert window.document.entry(Ref("gauge", 1))["format"] == "{used_gb:.0f}/{total_gb:.0f}G"
+        assert window.document.entry(Ref("gauge", 1))["format"] == original
     finally:
         window.undo.setClean()
         window.close()
