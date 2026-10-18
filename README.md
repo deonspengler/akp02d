@@ -33,6 +33,12 @@ Unplug the panel and plug it back in.
 
 To start akp02d automatically with your session:
 
+**Arch (AUR):** the package includes the service, so just enable it:
+
+    systemctl --user enable --now akp02d
+
+**pipx install:** create the service first:
+
     mkdir -p ~/.config/systemd/user
 
     cat > ~/.config/systemd/user/akp02d.service <<'EOF'
