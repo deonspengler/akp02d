@@ -34,18 +34,19 @@ Unplug the panel and plug it back in.
 To start akp02d automatically with your session:
 
     mkdir -p ~/.config/systemd/user
+
     cat > ~/.config/systemd/user/akp02d.service <<'EOF'
-[Unit]
-Description=akp02d
+    [Unit]
+    Description=akp02d
 
-[Service]
-ExecStart=%h/.local/bin/akp02d
-Restart=on-failure
-RestartSec=5
+    [Service]
+    ExecStart=%h/.local/bin/akp02d
+    Restart=on-failure
+    RestartSec=5
 
-[Install]
-WantedBy=default.target
-EOF
+    [Install]
+    WantedBy=default.target
+    EOF
 
     systemctl --user enable --now akp02d
 
