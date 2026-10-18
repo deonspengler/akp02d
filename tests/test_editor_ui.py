@@ -945,3 +945,33 @@ def test_canvas_snaps_moves_and_resizes_on_both_axes(app, tmp_path: Path) -> Non
         window.undo.setClean()
         window.close()
         pump(app)
+
+
+def test_simulated_or_live_sits_centred_and_switches(app, tmp_path: Path) -> None:
+    from akp02d.editor import simulate
+
+    window = _window(app, tmp_path)
+    try:
+        seg = window.data_seg
+        strip = seg.parentWidget()
+        centre = seg.mapTo(strip, seg.rect().center()).x()
+        assert abs(centre - strip.width() / 2) <= 2
+        assert seg.value() == "simulated"
+        bar = next(s.widget for s in window.engine.slots if s.plugin == "gauge")
+        assert isinstance(bar._source, simulate.StandIn)
+
+        seg._clicked("live")
+        pump(app, 0.3)
+        assert window.engine.live
+        gauge = next(s.widget for s in window.engine.slots if s.plugin == "gauge")
+        assert not isinstance(gauge._source, simulate.StandIn)
+
+        seg._clicked("simulated")
+        pump(app, 0.3)
+        gauge = next(s.widget for s in window.engine.slots if s.plugin == "gauge")
+        assert isinstance(gauge._source, simulate.StandIn)
+        assert window.undo.isClean()                     # a view setting, not an edit
+    finally:
+        window.undo.setClean()
+        window.close()
+        pump(app)

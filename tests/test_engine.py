@@ -186,3 +186,60 @@ def test_editor_reads_the_chosen_temperature_sensor(tmp_path: Path, monkeypatch)
                      'source = "temperature"\nsensor = "k10temp"\n')
     engine, _ = engine_for(text, tmp_path)
     assert [p.level for p in engine.problems() if p.widget == "label#3"] == [WARNING]
+
+
+LIVE = """\
+[theme]
+orientation = "portrait"
+background = "#203040"
+
+[[widget.bar]]
+x = 8
+y = 10
+width = 200
+height = 40
+source = "cpu"
+
+[[widget.graph]]
+x = 8
+y = 60
+width = 200
+height = 80
+source = "network"
+
+[[widget.spectrum]]
+x = 8
+y = 160
+width = 200
+height = 100
+"""
+
+
+def test_live_reads_this_machine(tmp_path: Path, monkeypatch) -> None:
+    from akp02d.editor import simulate
+    from akp02d.plugins import cava
+
+    engine, doc = engine_for(LIVE, tmp_path)
+    bar, graph, spectrum = (slot.widget for slot in engine.slots)
+    assert isinstance(bar._source, simulate.StandIn)
+    assert len(graph._history) > 10                      # simulated history, seeded
+
+    engine.set_live(True)
+    engine.load(doc)
+    bar, graph, spectrum = (slot.widget for slot in engine.slots)
+    assert not isinstance(bar._source, simulate.StandIn)
+    assert not isinstance(graph._source, simulate.StandIn)
+    assert len(graph._history) == 0                      # a real graph fills as it goes
+    engine.tick(0.0)
+    assert len(graph._history) == 1
+    if not cava.installed():
+        # Nothing to listen with: made-up music, and the panel says so.
+        slot = engine.slots[2]
+        assert slot.widget is not None and "simulated" in (slot.warning or "")
+        assert isinstance(spectrum._stream, simulate.Audio)
+
+    engine.set_live(False)
+    engine.load(doc)
+    assert isinstance(engine.slots[0].widget._source, simulate.StandIn)
+    assert engine.slots[2].warning is None
+    engine.close()

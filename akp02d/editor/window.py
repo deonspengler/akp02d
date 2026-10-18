@@ -323,8 +323,15 @@ class EditorWindow(QMainWindow):
         canvas_layout.setSpacing(0)
         strip = QFrame()
         strip.setStyleSheet(f"QFrame {{ background: {style.CHROME}; border-bottom: 1px solid #2b303a; }}")
-        strip_row = QHBoxLayout(strip)
-        strip_row.setContentsMargins(10, 4, 10, 4)
+        # Three groups: zoom on the left, readings in the middle -- centred
+        # on the strip, whatever the sides' widths -- snap and outlines on
+        # the right.
+        strip_grid = QGridLayout(strip)
+        strip_grid.setContentsMargins(10, 4, 10, 4)
+        strip_grid.setColumnStretch(0, 1)
+        strip_grid.setColumnStretch(2, 1)
+        strip_row = QHBoxLayout()
+        right_row = QHBoxLayout()
         # One or the other: fitted to the view, or actual pixels. Neither
         # is lit after a Ctrl+wheel zoom -- the level shows beside them
         # then -- and clicking one goes back to it.
@@ -340,6 +347,15 @@ class EditorWindow(QMainWindow):
         self.zoom_label.hide()
         strip_row.addWidget(self.zoom_label)
         strip_row.addStretch(1)
+        self.data_seg = Segmented((("simulated", "Simulated"), ("live", "Live")))
+        self.data_seg.setToolTip(
+            "Simulated: made-up readings and music, so every widget moves on any "
+            "machine.\nLive: this machine's real readings, to check ranges and "
+            "formats before applying. Graphs start empty and fill as they go; a "
+            "spectrum needs cava and something playing. Anything this machine "
+            "lacks stays simulated, with a warning.")
+        self.data_seg.set_value("simulated")
+        self.data_seg.changed.connect(self._data_changed)
         self.snap_box = QCheckBox("Snap")
         self.snap_box.setChecked(True)
         self.snap_box.setToolTip(
@@ -349,12 +365,16 @@ class EditorWindow(QMainWindow):
             f"Arrow keys step to the next grid line (Shift: four); Ctrl+arrow "
             f"moves one pixel.")
         self.snap_box.toggled.connect(self._snap_toggled)
-        strip_row.addWidget(self.snap_box)
-        strip_row.addSpacing(8)
+        right_row.addStretch(1)
+        right_row.addWidget(self.snap_box)
+        right_row.addSpacing(8)
         self.boxes_box = QCheckBox("Outlines")
         self.boxes_box.setChecked(True)
         self.boxes_box.toggled.connect(self._boxes_toggled)
-        strip_row.addWidget(self.boxes_box)
+        right_row.addWidget(self.boxes_box)
+        strip_grid.addLayout(strip_row, 0, 0)
+        strip_grid.addWidget(self.data_seg, 0, 1, Qt.AlignmentFlag.AlignCenter)
+        strip_grid.addLayout(right_row, 0, 2)
         canvas_layout.addWidget(strip)
         canvas_layout.addWidget(self.canvas, 1)
         splitter.addWidget(canvas_column)
@@ -708,6 +728,13 @@ class EditorWindow(QMainWindow):
         self.zoom_seg.set_value(mode)
         self.zoom_label.setText(f"{round(zoom * 100)}%")
         self.zoom_label.setVisible(mode == "")
+
+    def _data_changed(self, mode: str) -> None:
+        self.engine.set_live(mode == "live")
+        self.refresh()
+        self.statusBar().showMessage(
+            "Live readings from this machine" if mode == "live"
+            else "Simulated readings", 3000)
 
     def _snap_toggled(self, on: bool) -> None:
         self.canvas.snapping = on

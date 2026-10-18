@@ -254,10 +254,11 @@ class Inspector(QWidget):
         hint = QLabel("Select a widget on the canvas or in the layers list to edit it. "
                       "Drag to move, drag a handle to resize; arrow keys nudge, "
                       "Delete removes. Ctrl+wheel zooms.\n\n"
-                      "Readings in the preview are simulated -- CPU, memory, disk and "
-                      "network move, and spectrums play made-up music -- so every "
-                      "widget looks alive on any machine. The clock is real, and so "
-                      "is a temperature sensor this machine has.")
+                      "Readings in the preview are simulated by default -- CPU, memory, "
+                      "disk and network move, and spectrums play made-up music -- so "
+                      "every widget looks alive on any machine. The clock is real, and "
+                      "so is a temperature sensor this machine has. Switch to Live above "
+                      "the panel to see this machine's real readings.")
         hint.setWordWrap(True)
         hint.setObjectName("hint")
         column.addWidget(hint)

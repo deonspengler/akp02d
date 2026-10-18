@@ -89,6 +89,16 @@ class Engine:
         self.screen: Image.Image | None = None
         self._theme_key: tuple | None = None
         self._locales: tuple = ()
+        # Simulated readings (the default) or this machine's real ones.
+        self.live = False
+
+    def set_live(self, live: bool) -> None:
+        """Switch between simulated and real readings. Every widget is
+        rebuilt on the next load, since its source is made at build."""
+        if live != self.live:
+            self.live = live
+            for slot in self.slots:
+                slot.key = None
 
     # -- building --
 
@@ -191,12 +201,25 @@ class Engine:
         return slot
 
     def _try_build(self, slot: Slot, entry: dict[str, Any]) -> str | None:
+        if self.live:
+            error = self._try_build_as(slot, entry, simulated=False)
+            if error is None:
+                return None
+            # Something this machine lacks (a sensor, cava, playerctl):
+            # shown with simulated readings, and said so.
+            if self._try_build_as(slot, entry, simulated=True) is None:
+                slot.warning = f"{error} -- shown with simulated readings"
+                return None
+            return error
+        return self._try_build_as(slot, entry, simulated=True)
+
+    def _try_build_as(self, slot: Slot, entry: dict[str, Any], *, simulated: bool) -> str | None:
         assert self.theme is not None
         index = slot.ref.index - 1
         table = Table(entry, f"widget.{slot.plugin}[{index}]")
         previous_wrap = sources.wrap
-        sources.wrap = simulate.StandIn
-        plugin_base.set_preview(True)
+        sources.wrap = simulate.StandIn if simulated else None
+        plugin_base.set_preview(simulated)
         try:
             spec = theme_module.widget_spec(slot.plugin, slot.ref.index, table)
             slot.spec = spec
@@ -214,7 +237,9 @@ class Engine:
                                             entry.get("reverse") is True)
         widget.period = max(widget.period, 1.0 / self.LOOP_FPS)
         slot.widget = widget
-        self._seed(widget)
+        if simulated:
+            # Real sources only know now: a live graph fills as it goes.
+            self._seed(widget)
         slot.due = 0.0
         slot.error = None
         return None
@@ -297,7 +322,8 @@ class Engine:
                 out.append(Problem(
                     WARNING, f"{missing} -- previewed with simulated readings; it "
                     f"may well exist on the machine the panel is on", slot.id))
-            if slot.plugin == "spectrum" and slot.widget is not None and not cava.installed():
+            if (slot.plugin == "spectrum" and slot.widget is not None and not self.live
+                    and not cava.installed()):
                 out.append(Problem(
                     WARNING,
                     "cava is not installed on this machine; the daemon needs it "
