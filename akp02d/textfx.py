@@ -157,16 +157,18 @@ class TextStyle:
         size = surface.size
         stroke = self.outline_width if self.outline is not None else 0
         if self.shadow is not None:
-            shape = _mask(size, xy, text, font, anchor, stroke)
+            # Draw the mask where the shadow lands, at the text's position
+            # offset: one image and no paste, and an out-of-bounds offset
+            # clips against the box edge the same way the moved copy did.
             dx, dy = self.shadow_offset
-            moved = Image.new("L", size, 0)
-            moved.paste(shape, (dx, dy))
+            shadow = _mask(size, (xy[0] + dx, xy[1] + dy), text, font, anchor,
+                           stroke)
             if self.shadow_blur:
-                moved = moved.filter(ImageFilter.GaussianBlur(self.shadow_blur))
+                shadow = shadow.filter(ImageFilter.GaussianBlur(self.shadow_blur))
             if self.shadow_alpha < 1.0:
-                alpha = self.shadow_alpha
-                moved = moved.point(lambda value: int(value * alpha))
-            surface.paste(self.shadow, (0, 0), moved)
+                shadow = shadow.point(lambda value, k=self.shadow_alpha:
+                                      int(value * k))
+            surface.paste(self.shadow, (0, 0), shadow)
         if self.outline is not None:
             surface.paste(self.outline, (0, 0),
                           _mask(size, xy, text, font, anchor, stroke))

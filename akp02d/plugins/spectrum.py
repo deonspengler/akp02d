@@ -172,8 +172,8 @@ class SpectrumWidget(Widget):
         "_bars", "_box", "_cap", "_clearance", "_fills", "_gap", "_gradient",
         "_gravity", "_held", "_hold", "_inner", "_last", "_lut", "_mask",
         "_mask_box", "_mask_draw", "_paint", "_peaks", "_segment_gap",
-        "_segments", "_span", "_stream", "_surface_draw", "_threshold",
-        "_time", "_velocity",
+        "_segments", "_span", "_spoke_vectors", "_stream",
+        "_surface_draw", "_threshold", "_time", "_velocity",
     )
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
@@ -209,6 +209,18 @@ class SpectrumWidget(Widget):
             }
         self._gap = o.gap
         self._inner = o.inner
+        if kind == "radial":
+            # A unit vector per spoke, worked out once: the angles never
+            # change, so the trig belongs at load time, not per bar per
+            # frame.
+            step = 360.0 / self._bars
+            self._spoke_vectors = tuple(
+                (math.cos(math.radians(index * step - 90.0)),
+                 math.sin(math.radians(index * step - 90.0)))
+                for index in range(self._bars)
+            )
+        else:
+            self._spoke_vectors = None
         self._segments = o.segments
         self._segment_gap = o.segment_gap
         self._peaks: list[float] | None = [0.0] * self._bars if o.peaks else None
@@ -443,16 +455,16 @@ class SpectrumWidget(Widget):
         # loud bar becomes a fat slice and the ring reads as a blob.
         # Sized from the inner circumference so spokes never meet at the hub.
         spoke = max(2.0, 2 * math.pi * inner / self._bars - self._gap)
-        step = 360.0 / self._bars
+        vectors = self._spoke_vectors
         for index in range(self._bars):
-            angle = index * step - 90.0
             level = levels[index]
             if level > 0:
-                _spoke(draw, cx, cy, angle, inner, inner + level, spoke, fills[index])
+                _spoke(draw, cx, cy, vectors[index], inner, inner + level,
+                       spoke, fills[index])
             if peaks and peaks[index] >= 0:
                 end = inner + peaks[index]
-                _spoke(draw, cx, cy, angle, end - self._cap, end, spoke,
-                       caps[index])
+                _spoke(draw, cx, cy, vectors[index], end - self._cap, end,
+                       spoke, caps[index])
 
     # -- teardown --
 
@@ -462,10 +474,9 @@ class SpectrumWidget(Widget):
             self._stream = None
 
 
-def _spoke(draw, cx, cy, angle, r0, r1, width, fill) -> None:
+def _spoke(draw, cx, cy, vector, r0, r1, width, fill) -> None:
     """A rectangle of constant width, pointing out from the hub."""
-    radians = math.radians(angle)
-    ux, uy = math.cos(radians), math.sin(radians)
+    ux, uy = vector
     px, py = -uy, ux
     half = width / 2
     draw.polygon(

@@ -76,10 +76,10 @@ class GraphWidget(Widget):
         *scale.options(),
     )
 
-    __slots__ = ("_colours", "_fill", "_fill_alpha", "_history", "_inset",
+    __slots__ = ("_colours", "_fill", "_fill_alpha", "_fill_draw",
+                 "_fill_intensity", "_fill_mask", "_history", "_inset",
                  "_last", "_line", "_line_draw", "_line_width",
-                 "_mirrored", "_pair", "_scale", "_second",
-                 "_source")
+                 "_mirrored", "_pair", "_scale", "_second", "_source")
 
     def __init__(self, spec: WidgetSpec, theme: Theme) -> None:
         super().__init__(spec, theme)
@@ -98,11 +98,22 @@ class GraphWidget(Widget):
         self._fill = (None if o.fill is None else
                       gradient.paint(tuple(o.fill), spec.rect.size,
                                      o.fill_angle, o.fill_shape).copy())
+        # A mask of the area under the trace, drawn into once per frame:
+        # the box is re-cleared and the polygon redrawn in place, so the
+        # image itself outlives every redraw.
+        self._fill_mask = (None if self._fill is None
+                           else Image.new("L", spec.rect.size, 0))
+        self._fill_draw = (None if self._fill_mask is None
+                           else ImageDraw.Draw(self._fill_mask))
         # The fill is decoration over whatever is behind it, so it is the
         # part that wants to be see-through -- a solid block hides the
         # wallpaper the widget is sitting on. The line stays opaque: it
-        # is the data.
+        # is the data. The opacity is pre-multiplied into the mask's
+        # polygon, which is binary: painting it at the scaled intensity is
+        # the same per-pixel result a point() pass would give, without a
+        # second image.
         self._fill_alpha = o.fill_alpha
+        self._fill_intensity = int(255 * self._fill_alpha)
         self._line_width = o.line_width
         width, height = spec.rect.size
         points = o.points
@@ -205,11 +216,12 @@ class GraphWidget(Widget):
             step = (width - 1) / max(len(rows) - 1, 1)
             points = [(index * step, row) for index, row in enumerate(rows)]
             if self._fill is not None and len(points) > 1:
-                mask = _area((width, height), points, baseline)
-                if self._fill_alpha < 1.0:
-                    # A mask is a per-pixel blend, not just a stencil, so
-                    # scaling it down blends the fill with the backdrop.
-                    mask = mask.point(lambda value, k=self._fill_alpha: int(value * k))
+                mask, draw = self._fill_mask, self._fill_draw
+                # Cleared and redrawn in place; the opacity is in the
+                # polygon's value (see __init__).
+                draw.rectangle((0, 0, width - 1, height - 1), fill=0)
+                draw.polygon([(0, baseline)] + points + [(width - 1, baseline)],
+                             fill=self._fill_intensity)
                 self.surface.paste(self._fill, (0, 0), mask)
             self._line_draw.rectangle((0, 0, width - 1, height - 1), fill=0)
             if len(points) > 1:
@@ -221,19 +233,3 @@ class GraphWidget(Widget):
                     lut, self._scale.fraction(history[-1]) if history else 0.0)
             self.surface.paste(image, (0, 0), self._line)
         return True
-
-
-def _area(
-    size: tuple[int, int], points: list[tuple[float, float]], baseline: int
-) -> Image.Image:
-    """A mask of everything between the trace and its baseline.
-
-    Full widget size, because it is pasted against the widget: a
-    mirrored trace fills only half of it, above or below the centre.
-    """
-    width, _ = size
-    mask = Image.new("L", size, 0)
-    ImageDraw.Draw(mask).polygon(
-        [(0, baseline)] + points + [(width - 1, baseline)], fill=255
-    )
-    return mask

@@ -88,6 +88,22 @@ def test_label_outline_and_shadow_add_pixels() -> None:
     assert count(outlined, (255, 255, 255)) > 50
 
 
+def test_label_shadow_at_negative_offset() -> None:
+    """A negative offset puts the shadow above and to the left of the
+    text: the mask is drawn at the offset position, and an offset that
+    leaves the box clips at its edge, as a moved copy would have."""
+    image = label_pixels(shadow="#00ff00", shadow_x=-4, shadow_y=-4, shadow_blur=0,
+                         shadow_alpha=1.0)
+    shadow = [(x, y) for y in range(80) for x in range(300)
+              if image.getpixel((x, y)) == (0, 255, 0)]
+    white = [(x, y) for y in range(80) for x in range(300)
+             if image.getpixel((x, y)) == (255, 255, 255)]
+    assert len(shadow) > 50
+    # Up and left of the letters, not down and right.
+    assert min(y for _, y in shadow) < min(y for _, y in white)
+    assert min(x for x, _ in shadow) < min(x for x, _ in white)
+
+
 def test_glow_is_a_centred_soft_shadow() -> None:
     image = label_pixels(shadow="#00ffff", shadow_x=0, shadow_y=0, shadow_blur=6)
     cyanish = [p for p in pixels(image) if p != (10, 10, 10) and p[1] > p[0] + 20]

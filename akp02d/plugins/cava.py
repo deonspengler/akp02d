@@ -116,7 +116,9 @@ class Stream:
         if not whole:
             return None
         values = array("H")
-        values.frombytes(bytes(buffer[whole - self._width : whole]))
+        # A bytearray slice is already a fresh copy, so it goes straight
+        # into frombytes; no second one through bytes().
+        values.frombytes(buffer[whole - self._width : whole])
         del buffer[:whole]  # older frames are stale; drop them
         if self._swap:
             values.byteswap()
