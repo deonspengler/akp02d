@@ -3,19 +3,22 @@
 The frame underneath is the engine's composite -- real widgets drawing
 real (or stand-in) data -- and the boxes on top are the theme's
 geometry. Interaction happens in panel pixels, so a box is always at a
-whole coordinate, and every drag is checked against the same two rules
-the daemon enforces at load:
+whole coordinate.
 
-* colour-safe placement: the coordinate the panel's rule binds always
-  snaps to the nearest offset that renders in true colour, so a box can
-  never be placed where it would draw in the wrong colours;
-* no overlaps: a drop onto another widget is refused and the box goes
-  back where it was, unless Alt is held -- for the moment when swapping
-  two widgets needs one to sit on the other briefly.
+* Snapping (engine.place) works the same on both axes, for moving and
+  resizing alike: to other widgets' edges and centres and the panel's
+  centre lines, with a guide showing what lined up; to even gaps between
+  two neighbours; otherwise to an 8 px grid. Ctrl places freely. Shift
+  keeps a box's proportions while resizing, or one direction while
+  moving. The gaps to the nearest neighbours are shown while dragging.
+* No overlaps: the daemon refuses them at load, so a drop onto another
+  widget is refused and the box goes back where it was, unless Alt is
+  held -- for the moment when swapping two widgets needs one to sit on
+  the other briefly.
 
 A new widget can be dragged in from the Add Widget buttons: an outline
-of its default size follows the pointer, snapped by the same rule, red
-where it would overlap; dropping it there does nothing.
+of its default size follows the pointer, snapped the same way, red where
+it would overlap; dropping it there does nothing.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from akp02 import AKP02, Orientation
+from akp02 import Orientation
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QImage, QKeyEvent, QMouseEvent,
@@ -38,10 +41,12 @@ from .. import layout
 # What an Add Widget button carries when dragged: the plugin's name.
 MIME = "application/x-akp02d-plugin"
 from ..layout import Rect
-from .engine import snap
+from .engine import GRID, Placement, follow_ratio, keep_ratio, place
 from . import style
 
 HANDLE = 7  # handle size in screen pixels
+REACH = 6   # how near, in screen pixels, an edge must come to snap
+GUIDE = QColor("#ff4fd8")  # lines and gaps that something lined up on
 
 
 @dataclass(slots=True)
@@ -97,6 +102,8 @@ class Canvas(QGraphicsView):
         # A widget being dragged in from Add Widget, and the size a new
         # one of a kind starts at (the window's say).
         self._incoming: _Incoming | None = None
+        # Snapping on (the strip's checkbox); Ctrl turns it off per drag.
+        self.snapping = True
         self.size_for: Callable[[str], tuple[int, int]] = lambda plugin: (200, 100)
         self.setAcceptDrops(True)
 
@@ -271,9 +278,19 @@ class Canvas(QGraphicsView):
         if not drag.started and abs(dx) + abs(dy) < 2:
             return
         drag.started = True
+        mods = event.modifiers()
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        if shift and drag.mode == "move":
+            # One direction only: whichever the pointer has gone further.
+            if abs(dx) >= abs(dy):
+                dy = 0
+            else:
+                dx = 0
         raw = _apply(drag.start, drag.mode, dx, dy)
-        snapped = snap(raw, self.orientation, self.inverted, self.screen, drag.mode)
-        drag.raw, drag.rect = raw, snapped
+        placement = self._place(raw, drag.mode, drag.id, mods,
+                                ratio_from=drag.start if shift else None)
+        drag.raw, drag.rect, drag.placement = raw, placement.rect, placement
+        snapped = placement.rect
         drag.overlaps = [b.id for b in self.boxes
                          if b.id != drag.id and b.rect.overlaps(snapped)]
         self.status.emit(self._drag_text(drag))
@@ -332,14 +349,19 @@ class Canvas(QGraphicsView):
             super().keyPressEvent(event)
             return
         dx, dy = arrows[key]
-        axis, _, _, _ = layout.bound_axis(box.rect, self.orientation, self.inverted)
-        step = 10 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
-        # Along the bound axis, one step is one colour-safe slot.
-        modulus = AKP02.SHORT_AXIS_ALIGN_MODULUS
-        dx *= step * (modulus if axis == "x" else 1)
-        dy *= step * (modulus if axis == "y" else 1)
-        moved = Rect(box.rect.x + dx, box.rect.y + dy, box.rect.width, box.rect.height)
-        moved = snap(moved, self.orientation, self.inverted, self.screen)
+        mods = event.modifiers()
+        x, y = box.rect.x, box.rect.y
+        if self.snapping and not mods & Qt.KeyboardModifier.ControlModifier:
+            # To the next grid line that way; Shift jumps four.
+            lines = 4 if mods & Qt.KeyboardModifier.ShiftModifier else 1
+            x = _grid_step(x, dx, lines) if dx else x
+            y = _grid_step(y, dy, lines) if dy else y
+        else:
+            # A pixel at a time; Shift for ten.
+            step = 10 if mods & Qt.KeyboardModifier.ShiftModifier else 1
+            x, y = x + dx * step, y + dy * step
+        moved = place(Rect(x, y, box.rect.width, box.rect.height), "move", [],
+                      self.screen, snapping=False).rect
         clash = [b.id for b in self.boxes if b.id != box.id and b.rect.overlaps(moved)]
         if clash:
             self.status.emit(f"{box.id} would overlap {', '.join(clash)}")
@@ -349,27 +371,45 @@ class Canvas(QGraphicsView):
 
     # -- a new widget, dragged in --
 
-    def incoming_at(self, plugin: str, point: QPointF) -> _Incoming | None:
+    def _place(self, raw: Rect, mode: str, moving_id: str | None, mods,
+               ratio_from: Rect | None = None) -> Placement:
+        """Snap `raw` as the settings and held keys say."""
+        others = [b.rect for b in self.boxes if b.id != moving_id]
+        snapping = self.snapping and not mods & Qt.KeyboardModifier.ControlModifier
+        reach = REACH / max(self._zoom, 0.01)
+        if ratio_from is None or mode == "move":
+            return place(raw, mode, others, self.screen, reach=reach, snapping=snapping)
+        # Proportions kept: the leading edges snap, the rest follow.
+        shaped, lead = keep_ratio(ratio_from, raw, mode)
+        led = place(shaped, lead, others, self.screen, reach=reach, snapping=snapping)
+        rect = follow_ratio(ratio_from, led.rect, mode, lead)
+        final = place(rect, mode, others, self.screen, snapping=False)
+        return Placement(final.rect, led.guides, final.gaps)
+
+    def incoming_at(self, plugin: str, point: QPointF, mods=None) -> _Incoming | None:
         """Where a new `plugin` would land with the pointer at `point`
         (scene, panel pixels): centred on it, kept on the panel, snapped
-        colour-safe. None off the panel."""
+        as a moved box is. None off the panel."""
         width, height = self.screen
         if not (0 <= point.x() < width and 0 <= point.y() < height):
             return None
         w, h = self.size_for(plugin)
         w, h = min(w, width), min(h, height)
-        x = min(max(round(point.x() - w / 2), 0), width - w)
-        y = min(max(round(point.y() - h / 2), 0), height - h)
-        rect = snap(Rect(x, y, w, h), self.orientation, self.inverted, self.screen)
+        x = round(point.x() - w / 2)
+        y = round(point.y() - h / 2)
+        mods = Qt.KeyboardModifier.NoModifier if mods is None else mods
+        placement = self._place(Rect(x, y, w, h), "move", None, mods)
+        rect = placement.rect
         overlaps = [b.id for b in self.boxes if b.rect.overlaps(rect)]
-        return _Incoming(plugin, rect, overlaps)
+        return _Incoming(plugin, rect, overlaps, placement)
 
     def _track_incoming(self, event) -> bool:
         data = event.mimeData()
         if not data.hasFormat(MIME):
             return False
         plugin = bytes(data.data(MIME)).decode()
-        self._incoming = self.incoming_at(plugin, self.mapToScene(event.position().toPoint()))
+        self._incoming = self.incoming_at(plugin, self.mapToScene(event.position().toPoint()),
+                                          event.modifiers())
         incoming = self._incoming
         if incoming is None:
             self.status.emit(f"New {plugin}: drop it on the panel")
@@ -412,18 +452,11 @@ class Canvas(QGraphicsView):
     def _drag_text(self, drag: _Drag) -> str:
         r = drag.rect
         text = f"{drag.id}  {r.x}, {r.y}  {r.width}×{r.height}"
-        if drag.raw != drag.rect:
-            axis, value, _, _ = layout.bound_axis(drag.raw, self.orientation, self.inverted)
-            snapped = getattr(drag.rect, axis)
-            raw_value = getattr(drag.raw, axis)
-            if raw_value != snapped:
-                text += f"   {axis} {raw_value} → {snapped} (colour-safe)"
-            else:
-                extent = "width" if axis == "x" else "height"
-                text += (f"   {extent} {getattr(drag.raw, extent)} → "
-                         f"{getattr(drag.rect, extent)} (colour-safe)")
         if drag.overlaps:
             text += f"   overlaps {', '.join(drag.overlaps)}"
+        elif self.snapping:
+            text += ("   Ctrl: place freely · Shift: one direction" if drag.mode == "move"
+                     else "   Ctrl: size freely · Shift: keep proportions")
         return text
 
     # -- drawing --
@@ -449,8 +482,10 @@ class Canvas(QGraphicsView):
         painter.drawRect(QRectF(0, 0, width, height))
         drag = self._drag if self._drag is not None and self._drag.started else None
 
-        if drag is not None:
-            self._draw_guides(painter, drag)
+        placement = (drag.placement if drag is not None
+                     else self._incoming.placement if self._incoming is not None else None)
+        if placement is not None:
+            self._draw_guides(painter, placement)
 
         painter.save()
         painter.resetTransform()
@@ -482,11 +517,6 @@ class Canvas(QGraphicsView):
         if selected is not None:
             current = drag.rect if drag is not None and drag.id == selected.id else selected.rect
             if drag is not None and drag.id == selected.id:
-                # Where the pointer actually is, before snapping.
-                ghost = self._view_rect(drag.raw)
-                painter.setPen(QPen(QColor(style.BAD) if drag.raw != drag.rect
-                                    else QColor(255, 255, 255, 90), 1, Qt.PenStyle.DashLine))
-                painter.drawRect(ghost.adjusted(0, 0, -1, -1))
                 for other_id in drag.overlaps:
                     other = self._box(other_id)
                     if other is None:
@@ -533,35 +563,47 @@ class Canvas(QGraphicsView):
             painter.drawText(area, Qt.AlignmentFlag.AlignCenter, f"new {incoming.plugin}")
         painter.restore()
 
-    def _draw_guides(self, painter: QPainter, drag: _Drag) -> None:
-        """The colour-safe offsets near the dragged edge, every slot."""
-        width, height = self.screen
-        rect = drag.rect
-        axis, value, extent, reflected = layout.bound_axis(rect, self.orientation, self.inverted)
-        modulus = AKP02.SHORT_AXIS_ALIGN_MODULUS
-        residue = AKP02.SHORT_AXIS_ALIGN_RESIDUE
-        short = AKP02.PANEL_SHORT_SIDE
-        # The edge the rule constrains: the near one, or the far one when
-        # the axis is reflected.
-        if reflected:
-            edge = value + extent
-            target = (short - residue) % modulus
-        else:
-            edge = value
-            target = residue % modulus
-        start = edge - 6 * modulus
-        start -= (start - target) % modulus
-        pen = QPen(QColor(61, 174, 233, 70), 0)
-        strong = QPen(QColor(61, 174, 233, 200), 0)
-        for position in range(start, edge + 7 * modulus, modulus):
-            painter.setPen(strong if position == edge else pen)
-            if axis == "x":
-                if 0 <= position <= width:
-                    painter.drawLine(QPointF(position, rect.y - 40),
-                                     QPointF(position, rect.y + rect.height + 40))
-            elif 0 <= position <= height:
-                painter.drawLine(QPointF(rect.x - 40, position),
-                                 QPointF(rect.x + rect.width + 40, position))
+    def _draw_guides(self, painter: QPainter, placement: Placement) -> None:
+        """What the box lined up on, and the gaps to its neighbours."""
+        painter.save()
+        painter.resetTransform()
+        pen = QPen(GUIDE, 1)
+        painter.setPen(pen)
+        for guide in placement.guides:
+            if guide.axis == "x":
+                a = self.mapFromScene(QPointF(guide.at, guide.start))
+                b = self.mapFromScene(QPointF(guide.at, guide.end))
+            else:
+                a = self.mapFromScene(QPointF(guide.start, guide.at))
+                b = self.mapFromScene(QPointF(guide.end, guide.at))
+            painter.drawLine(a, b)
+        font = QFont(self.font())
+        font.setPointSizeF(max(7.0, font.pointSizeF() - 2))
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        for gap in placement.gaps:
+            colour = GUIDE if gap.equal else QColor(255, 255, 255, 170)
+            painter.setPen(QPen(colour, 1))
+            if gap.axis == "x":
+                a = self.mapFromScene(QPointF(gap.start, gap.across))
+                b = self.mapFromScene(QPointF(gap.end, gap.across))
+                ends = ((a.x(), a.y() - 3, a.x(), a.y() + 3), (b.x(), b.y() - 3, b.x(), b.y() + 3))
+            else:
+                a = self.mapFromScene(QPointF(gap.across, gap.start))
+                b = self.mapFromScene(QPointF(gap.across, gap.end))
+                ends = ((a.x() - 3, a.y(), a.x() + 3, a.y()), (b.x() - 3, b.y(), b.x() + 3, b.y()))
+            painter.drawLine(a, b)
+            for x0, y0, x1, y1 in ends:
+                painter.drawLine(x0, y0, x1, y1)
+            label = str(gap.end - gap.start)
+            box = metrics.boundingRect(label).adjusted(-3, -1, 3, 1)
+            box.moveCenter((a + b) / 2)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(13, 17, 23, 210))
+            painter.drawRoundedRect(QRectF(box), 2, 2)
+            painter.setPen(colour)
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
+        painter.restore()
 
     def _view_rect(self, rect: Rect) -> QRect:
         top_left = self.mapFromScene(QPointF(rect.x, rect.y))
@@ -590,6 +632,7 @@ class _Incoming:
     plugin: str
     rect: Rect
     overlaps: list[str]
+    placement: Placement | None = None
 
 
 @dataclass(slots=True)
@@ -602,10 +645,18 @@ class _Drag:
     raw: Rect | None = None
     started: bool = False
     overlaps: list[str] | None = None
+    placement: Placement | None = None
 
     def __post_init__(self) -> None:
         self.raw = self.rect
         self.overlaps = []
+
+
+def _grid_step(value: int, direction: int, lines: int) -> int:
+    """`value` moved to the `lines`-th grid line in `direction` (-1, 1)."""
+    for _ in range(lines):
+        value = (value // GRID + 1) * GRID if direction > 0 else (value - 1) // GRID * GRID
+    return value
 
 
 def _apply(rect: Rect, mode: str, dx: int, dy: int) -> Rect:

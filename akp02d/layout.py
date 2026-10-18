@@ -6,11 +6,11 @@ plugged in.
 
 The rule worth knowing: a region renders with the wrong colour unless
 the offset reaching the CRTDRA header's x field is congruent to
-SHORT_AXIS_ALIGN_RESIDUE modulo SHORT_AXIS_ALIGN_MODULUS. show()
-handles a violation by nudging the region and warning, every frame;
-akp02d would rather reject the theme at load so the widget lands where
-its author put it. Both constants are read from the library, so a
-firmware finding that moves them moves this too.
+SHORT_AXIS_ALIGN_RESIDUE modulo SHORT_AXIS_ALIGN_MODULUS. Widgets do not
+have to follow it: every push is widened to whole blocks of the buffer
+(`on_block_grid`), which always does, so a widget can sit anywhere.
+Both constants are read from the library, so a firmware finding that
+moves them moves this too.
 """
 
 from __future__ import annotations
@@ -84,24 +84,6 @@ def is_aligned(rect: Rect, orientation: Orientation, inverted: bool) -> bool:
     return header_offset(rect, orientation, inverted) % _MODULUS == _RESIDUE
 
 
-def nearest_aligned(
-    rect: Rect, orientation: Orientation, inverted: bool
-) -> tuple[int, ...]:
-    """Valid coordinates on the bound axis, nearest first, for the error."""
-    _, value, extent, reflected = bound_axis(rect, orientation, inverted)
-    if extent > _SHORT:
-        return ()
-    # header is (S - v - e) or v, so v itself is fixed to one residue class.
-    target = (_SHORT - extent - _RESIDUE if reflected else _RESIDUE) % _MODULUS
-    base = value - (value - target) % _MODULUS
-    return tuple(
-        sorted(
-            (c for c in (base, base + _MODULUS) if 0 <= c <= _SHORT - extent),
-            key=lambda c: (abs(c - value), c),
-        )
-    )
-
-
 _BLOCK = 8          # a JPEG block, at the 4:4:4 the driver encodes with
 
 
@@ -154,7 +136,7 @@ def validate(
 ) -> None:
     """Reject a layout the panel cannot draw as written.
 
-    Per widget: positive size, on screen, colour-safe. Then no overlaps,
+    Per widget: positive size, on screen. Then no overlaps,
     since akp02d pushes each widget as its own region with no
     compositing step, and overlapping boxes would fight over the same
     pixels in whatever order the loop visited them.
@@ -171,20 +153,6 @@ def validate(
             raise LayoutError(
                 f"{where} ({rect.x},{rect.y}) {rect.width}x{rect.height} does not "
                 f"fit the {screen_w}x{screen_h} screen"
-            )
-        if not is_aligned(rect, orientation, inverted):
-            axis, value, extent, _ = bound_axis(rect, orientation, inverted)
-            extent_name = "height" if axis == "y" else "width"
-            options = nearest_aligned(rect, orientation, inverted)
-            fix = (
-                f"nearest colour-safe {axis} for this size: "
-                + " or ".join(map(str, options))
-                if options
-                else f"no colour-safe {axis} exists; change the {extent_name}"
-            )
-            raise LayoutError(
-                f"{where} {axis}={value} with {extent_name}={extent} is not "
-                f"colour-safe; {fix}"
             )
     for index, (name, rect) in enumerate(items):
         for other_name, other in items[index + 1 :]:

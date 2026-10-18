@@ -20,7 +20,7 @@ from typing import Any
 
 from PIL import Image
 
-from akp02 import AKP02, Orientation
+from akp02 import Orientation
 
 from .. import layout, sources
 from ..layout import Rect
@@ -356,12 +356,6 @@ def layout_problems(
         if (rect.x < 0 or rect.y < 0 or rect.x + rect.width > width
                 or rect.y + rect.height > height):
             out.append(Problem(ERROR, f"does not fit the {width}x{height} screen", name))
-        elif not layout.is_aligned(rect, orientation, inverted):
-            axis, value, extent, _ = layout.bound_axis(rect, orientation, inverted)
-            options = layout.nearest_aligned(rect, orientation, inverted)
-            fix = (" or ".join(map(str, options)) if options else "none for this size")
-            out.append(Problem(
-                ERROR, f"{axis}={value} is not colour-safe; nearest: {fix}", name))
     for index, (name, rect) in enumerate(rects):
         for other_name, other in rects[index + 1:]:
             if rect.overlaps(other):
@@ -369,53 +363,278 @@ def layout_problems(
     return out
 
 
-def snap(rect: Rect, orientation: Orientation, inverted: bool,
-         screen: tuple[int, int], moving: str = "move") -> Rect:
-    """The nearest colour-safe rect, changing only what is being dragged.
+# -- placing boxes: snapping --
 
-    `moving` is "move" (shift the box), or the edges being dragged as a
-    string of l/t/r/b. Only the coordinate the panel's rule binds can be
-    wrong, so this searches shifts of the dragged edges along that axis
-    and keeps the smallest one that lands on a safe offset.
+# The grid boxes snap to. A whole JPEG block of the panel's buffer, so a
+# box on it is also a box the daemon pushes without widening.
+GRID = 8
+# How close, in panel pixels, an edge has to come to snap to something.
+REACH = 6.0
+
+
+@dataclass(frozen=True, slots=True)
+class Guide:
+    """A line something lined up on: `axis` "x" is a vertical line at x =
+    `at`, drawn from `start` to `end` down the panel; "y" is horizontal."""
+
+    axis: str
+    at: int
+    start: int
+    end: int
+
+
+@dataclass(frozen=True, slots=True)
+class Gap:
+    """The space between the box and a neighbour, along `axis`, from
+    `start` to `end`, drawn across at `across`. `equal` when it matches
+    the gap on the other side."""
+
+    axis: str
+    start: int
+    end: int
+    across: int
+    equal: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class Placement:
+    rect: Rect
+    guides: tuple[Guide, ...] = ()
+    gaps: tuple[Gap, ...] = ()
+
+
+def place(raw: Rect, mode: str, others: list[Rect], screen: tuple[int, int], *,
+          grid: int | None = GRID, reach: float = REACH, snapping: bool = True) -> Placement:
+    """Where a box being moved or resized lands, and what it lined up on.
+
+    `mode` is "move", or the edges being dragged as a string of l/t/r/b.
+    Each axis is snapped on its own, and only what is being dragged moves:
+    a whole box, or just the edges in `mode`. Within `reach`, an edge or
+    centre snaps to another box's edges and centres, or the panel's edges
+    and centre lines; a moved box also snaps to equal gaps between its two
+    neighbours. Failing those, the dragged edges go to the `grid`. With
+    `snapping` off, the box goes where it was put, kept on the panel.
     """
-    width, height = screen
-    rect = _clamp(rect, screen)
-    if layout.is_aligned(rect, orientation, inverted):
+    rect = _fit(raw, mode, screen)
+    if not snapping:
+        return Placement(rect, (), _gaps(rect, others))
+    for axis in ("x", "y"):
+        edges = _edges_on(axis, mode)
+        if not edges:
+            continue
+        shift = _best_shift(rect, axis, edges, others, screen, reach, mode == "move")
+        if shift is None and grid:
+            shift = _grid_shift(rect, axis, edges, grid)
+        if shift:
+            rect = _fit(_shifted(rect, axis, edges, shift), mode, screen)
+    return Placement(rect, _guides(rect, mode, others, screen), _gaps(rect, others))
+
+
+def keep_ratio(start: Rect, raw: Rect, mode: str) -> tuple[Rect, str]:
+    """`raw` reshaped to `start`'s proportions, and the edges that lead.
+
+    A corner follows whichever dimension moved more; a side drags the
+    other dimension along, centred, so the box grows evenly. The leading
+    edges are the ones worth snapping: the rest follow from them.
+    """
+    if mode == "move" or start.width < 1 or start.height < 1:
+        return raw, mode
+    ratio = start.width / start.height
+    horizontal = "".join(e for e in mode if e in "lr")
+    vertical = "".join(e for e in mode if e in "tb")
+    if horizontal and vertical:
+        by_width = abs(raw.width / start.width - 1) >= abs(raw.height / start.height - 1)
+        lead = horizontal if by_width else vertical
+    else:
+        lead = horizontal or vertical
+    return _with_ratio(raw, mode, lead, ratio), lead
+
+
+def follow_ratio(start: Rect, rect: Rect, mode: str, lead: str) -> Rect:
+    """After the leading edges snapped, bring the other dimension along."""
+    if mode == "move" or start.height < 1:
         return rect
-    axis, _, _, _ = layout.bound_axis(rect, orientation, inverted)
-    modulus = AKP02.SHORT_AXIS_ALIGN_MODULUS
-    candidates = []
-    for distance in range(1, modulus + 1):
-        for shift in (-distance, distance):
-            candidate = _shift(rect, axis, shift, moving)
-            if candidate is None:
-                continue
-            if (candidate.width < 1 or candidate.height < 1 or candidate.x < 0
-                    or candidate.y < 0 or candidate.x + candidate.width > width
-                    or candidate.y + candidate.height > height):
-                continue
-            if layout.is_aligned(candidate, orientation, inverted):
-                candidates.append(candidate)
-        if candidates:
-            return candidates[0]
-    return rect
+    return _with_ratio(rect, mode, lead, start.width / start.height)
 
 
-def _shift(rect: Rect, axis: str, d: int, moving: str) -> Rect | None:
+def _with_ratio(rect: Rect, mode: str, lead: str, ratio: float) -> Rect:
     x, y, w, h = rect
-    if moving == "move":
-        return Rect(x + d, y, w, h) if axis == "x" else Rect(x, y + d, w, h)
+    if lead in ("l", "r"):
+        new_h = max(1, round(w / ratio))
+        if "t" in mode:
+            y += h - new_h
+        elif "b" not in mode:
+            y += (h - new_h) // 2
+        h = new_h
+    else:
+        new_w = max(1, round(h * ratio))
+        if "l" in mode:
+            x += w - new_w
+        elif "r" not in mode:
+            x += (w - new_w) // 2
+        w = new_w
+    return Rect(x, y, w, h)
+
+
+def _edges_on(axis: str, mode: str) -> str:
+    """What moves along `axis`: "lr"/"tb" for a whole box, else the
+    dragged edges on that axis."""
+    if mode == "move":
+        return "lr" if axis == "x" else "tb"
+    return "".join(e for e in mode if e in ("lr" if axis == "x" else "tb"))
+
+
+def _span(rect: Rect, axis: str) -> tuple[int, int]:
+    return (rect.x, rect.x + rect.width) if axis == "x" else (rect.y, rect.y + rect.height)
+
+
+def _features(rect: Rect, axis: str, edges: str) -> list[float]:
+    """The positions that can line up: both edges and the centre of a
+    moving box, or the one edge being dragged."""
+    low, high = _span(rect, axis)
+    if len(edges) == 2:
+        return [low, (low + high) / 2, high]
+    return [low if edges in "lt" else high]
+
+
+def _targets(axis: str, others: list[Rect], screen: tuple[int, int]) -> list[float]:
+    size = screen[0] if axis == "x" else screen[1]
+    out = [0.0, size / 2, float(size)]
+    for other in others:
+        low, high = _span(other, axis)
+        out += [low, (low + high) / 2, high]
+    return out
+
+
+def _across(rect: Rect, other: Rect, axis: str) -> bool:
+    """Whether two boxes share some of the other axis: neighbours in a
+    row (for x) or a column (for y)."""
+    a0, a1 = _span(rect, "y" if axis == "x" else "x")
+    b0, b1 = _span(other, "y" if axis == "x" else "x")
+    return a0 < b1 and b0 < a1
+
+
+def _neighbours(rect: Rect, axis: str, others: list[Rect]) -> tuple[Rect | None, Rect | None]:
+    """The nearest box before and after `rect` along `axis`, in its row."""
+    low, high = _span(rect, axis)
+    before = [o for o in others if _across(rect, o, axis) and _span(o, axis)[1] <= low]
+    after = [o for o in others if _across(rect, o, axis) and _span(o, axis)[0] >= high]
+    first = max(before, key=lambda o: _span(o, axis)[1], default=None)
+    last = min(after, key=lambda o: _span(o, axis)[0], default=None)
+    return first, last
+
+
+def _best_shift(rect: Rect, axis: str, edges: str, others: list[Rect],
+                screen: tuple[int, int], reach: float, moving: bool) -> int | None:
+    best: float | None = None
+    targets = _targets(axis, others, screen)
+    for feature in _features(rect, axis, edges):
+        for target in targets:
+            shift = target - feature
+            if abs(shift) <= reach and (best is None or abs(shift) < abs(best)):
+                best = shift
+    if moving:
+        # Even spacing: centred in the room between the two neighbours.
+        # Searched with the box where it is now, so the neighbours are
+        # the ones it sits between.
+        first, last = _neighbours(rect, axis, others)
+        if first is not None and last is not None:
+            low, high = _span(rect, axis)
+            room = _span(last, axis)[0] - _span(first, axis)[1]
+            want = _span(first, axis)[1] + (room - (high - low)) / 2
+            shift = want - low
+            if abs(shift) <= reach and (best is None or abs(shift) < abs(best)):
+                best = shift
+    return None if best is None else round(best)
+
+
+def _grid_shift(rect: Rect, axis: str, edges: str, grid: int) -> int:
+    """To the nearest grid line: the leading edge of a moved box, or the
+    dragged edge."""
+    low, high = _span(rect, axis)
+    edge = high if edges in ("r", "b") else low
+    return round(edge / grid) * grid - edge
+
+
+def _shifted(rect: Rect, axis: str, edges: str, shift: int) -> Rect:
+    x, y, w, h = rect
     if axis == "x":
-        if "l" in moving:
-            return Rect(x + d, y, w - d, h)
-        if "r" in moving:
-            return Rect(x, y, w + d, h)
-        return None
-    if "t" in moving:
-        return Rect(x, y + d, w, h - d)
-    if "b" in moving:
-        return Rect(x, y, w, h + d)
-    return None
+        if len(edges) == 2:
+            return Rect(x + shift, y, w, h)
+        return Rect(x + shift, y, w - shift, h) if edges == "l" else Rect(x, y, w + shift, h)
+    if len(edges) == 2:
+        return Rect(x, y + shift, w, h)
+    return Rect(x, y + shift, w, h - shift) if edges == "t" else Rect(x, y, w, h + shift)
+
+
+def _fit(rect: Rect, mode: str, screen: tuple[int, int]) -> Rect:
+    """On the panel: a moved box slides back on whole; a resized one has
+    its dragged edges stopped at the panel's edge, at least 1 px wide."""
+    if mode == "move":
+        return _clamp(rect, screen)
+    width, height = screen
+    x0, y0 = rect.x, rect.y
+    x1, y1 = rect.x + rect.width, rect.y + rect.height
+    if "l" in mode:
+        x0 = min(max(x0, 0), x1 - 1)
+    if "r" in mode:
+        x1 = max(min(x1, width), x0 + 1)
+    if "t" in mode:
+        y0 = min(max(y0, 0), y1 - 1)
+    if "b" in mode:
+        y1 = max(min(y1, height), y0 + 1)
+    return _clamp(Rect(x0, y0, x1 - x0, y1 - y0), screen)
+
+
+def _guides(rect: Rect, mode: str, others: list[Rect],
+            screen: tuple[int, int]) -> tuple[Guide, ...]:
+    """Every line the box's moving features now sit exactly on."""
+    out: list[Guide] = []
+    for axis in ("x", "y"):
+        edges = _edges_on(axis, mode)
+        if not edges:
+            continue
+        cross = "y" if axis == "x" else "x"
+        size = screen[1] if axis == "x" else screen[0]
+        mine = _span(rect, cross)
+        for feature in _features(rect, axis, edges):
+            if feature != int(feature):
+                continue
+            at = int(feature)
+            # The panel's own edges are its outline already; its centre
+            # line is worth showing, the full length.
+            middle = (screen[0] if axis == "x" else screen[1]) / 2
+            if at == middle:
+                out.append(Guide(axis, at, 0, size))
+            for other in others:
+                low, high = _span(other, axis)
+                if at in (low, high, (low + high) / 2):
+                    theirs = _span(other, cross)
+                    out.append(Guide(axis, at, min(mine[0], theirs[0]), max(mine[1], theirs[1])))
+    return tuple(dict.fromkeys(out))
+
+
+def _gaps(rect: Rect, others: list[Rect]) -> tuple[Gap, ...]:
+    """The space to the nearest neighbour on each side, in its row and
+    column, marked equal where the two sides match."""
+    out: list[Gap] = []
+    for axis in ("x", "y"):
+        first, last = _neighbours(rect, axis, others)
+        low, high = _span(rect, axis)
+        found = []
+        for other, start, end in ((first, None, low), (last, high, None)):
+            if other is None:
+                continue
+            a, b = _span(other, axis)
+            span = (b, end) if start is None else (start, a)
+            o0, o1 = _span(other, "y" if axis == "x" else "x")
+            m0, m1 = _span(rect, "y" if axis == "x" else "x")
+            across = (max(o0, m0) + min(o1, m1)) // 2
+            found.append((span, across))
+        equal = len(found) == 2 and (found[0][0][1] - found[0][0][0]
+                                     == found[1][0][1] - found[1][0][0])
+        out += [Gap(axis, s, e, across, equal) for (s, e), across in found if e > s]
+    return tuple(out)
 
 
 def _clamp(rect: Rect, screen: tuple[int, int]) -> Rect:
@@ -428,5 +647,6 @@ def _clamp(rect: Rect, screen: tuple[int, int]) -> Rect:
 
 
 __all__ = [
-    "ERROR", "WARNING", "Engine", "Problem", "Slot", "layout_problems", "snap",
+    "ERROR", "GRID", "WARNING", "Engine", "Gap", "Guide", "Placement", "Problem", "Slot",
+    "follow_ratio", "keep_ratio", "layout_problems", "place",
 ]

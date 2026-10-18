@@ -153,8 +153,8 @@ def test_changing_source_drops_a_format_that_no_longer_fits(app, tmp_path: Path)
 
 def test_color_is_one_colour_or_a_gradient(app, tmp_path: Path) -> None:
     """A label's `color` is one option: a colour field until a second
-    stop is added, then a gradient with its direction. A colour-safe box
-    carries no note, an unsafe one does."""
+    stop is added, then a gradient with its direction. No position
+    carries a colour note: any position draws in true colour."""
     (tmp_path / "theme.toml").write_text(
         '[theme]\norientation = "portrait"\n\n[[widget.label]]\n'
         'x = 8\ny = 0\nwidth = 170\nheight = 50\nformat = "Hi"\n'
@@ -213,7 +213,7 @@ def test_color_is_one_colour_or_a_gradient(app, tmp_path: Path) -> None:
 
         window._widget_edited(ref, "x", 9)
         pump(app, 0.2)
-        assert any("is not colour-safe" in t for t in labels())
+        assert not any("olour-safe" in t for t in labels())
     finally:
         window.undo.setClean()
         window.close()
@@ -809,7 +809,7 @@ def test_dropping_an_add_button_places_the_widget_there(app, tmp_path: Path) -> 
         added = window.selection
         entry = window.document.entry(added)
         assert (entry["x"], entry["y"], entry["width"], entry["height"]) == tuple(seen.rect)
-        assert abs(seen.rect.y - free[2].y) <= 2       # where it was dropped
+        assert abs(seen.rect.y - free[2].y) <= 8       # where it was dropped, give or take a snap
         # One undo takes it away again.
         window.undo.undo()
         pump(app, 0.3)
@@ -823,6 +823,124 @@ def test_dropping_an_add_button_places_the_widget_there(app, tmp_path: Path) -> 
         _drop(window, "label", -20, -20)
         pump(app, 0.3)
         assert len(window.engine.slots) == before
+    finally:
+        window.undo.setClean()
+        window.close()
+        pump(app)
+
+
+def _mouse(canvas, kind: str, scene, mods=None) -> None:
+    """A left-button press, move or release at a scene point."""
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    mods = Qt.KeyboardModifier.NoModifier if mods is None else mods
+    at = QPointF(canvas.mapFromScene(QPointF(*scene)))
+    types = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+             "release": QEvent.Type.MouseButtonRelease}
+    buttons = Qt.MouseButton.NoButton if kind == "release" else Qt.MouseButton.LeftButton
+    event = QMouseEvent(types[kind], at, canvas.viewport().mapToGlobal(at),
+                        Qt.MouseButton.LeftButton, buttons, mods)
+    getattr(canvas, {"press": "mousePressEvent", "move": "mouseMoveEvent",
+                     "release": "mouseReleaseEvent"}[kind])(event)
+
+
+def _drag(canvas, start, end, mods=None) -> None:
+    _mouse(canvas, "press", start, mods)
+    mid = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+    _mouse(canvas, "move", mid, mods)
+    _mouse(canvas, "move", end, mods)
+    _mouse(canvas, "release", end, mods)
+
+
+def test_canvas_snaps_moves_and_resizes_on_both_axes(app, tmp_path: Path) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent
+    from akp02d.layout import Rect
+
+    window = _window(app, tmp_path)
+    try:
+        canvas = window.canvas
+        canvas.set_zoom(1.0)
+        ref = Ref("label", 1)
+        window._set_selection(ref)
+        pump(app, 0.2)
+
+        def rect():
+            e = window.document.entry(ref)
+            return Rect(e["x"], e["y"], e["width"], e["height"])
+
+        # Free first, so the starting point is off the grid.
+        window._geometry_from_canvas(window._id_of(ref), Rect(11, 3, 150, 45))
+        pump(app, 0.2)
+        start = rect()
+        canvas.centerOn(start.x + 60, start.y + 20)
+        pump(app, 0.1)
+        grab = (start.x + 40, start.y + 20)
+
+        # A move lands on the grid on both axes.
+        _drag(canvas, grab, (grab[0] + 23, grab[1] + 22))
+        pump(app, 0.2)
+        moved = rect()
+        assert moved.x % 8 == 0 and moved.y % 8 == 0 and moved != start
+        assert (moved.width, moved.height) == (start.width, start.height)
+
+        # Ctrl places it exactly where it was put.
+        grab = (moved.x + 40, moved.y + 20)
+        _drag(canvas, grab, (grab[0] + 5, grab[1] + 3), Qt.KeyboardModifier.ControlModifier)
+        pump(app, 0.2)
+        assert rect() == Rect(moved.x + 5, moved.y + 3, moved.width, moved.height)
+
+        # Arrows step to the next grid line; Ctrl+arrow by a pixel.
+        def key(k, mods=Qt.KeyboardModifier.NoModifier):
+            canvas.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, k, mods))
+            pump(app, 0.15)
+
+        before = rect()
+        key(Qt.Key.Key_Right)
+        assert rect().x == (before.x // 8 + 1) * 8
+        key(Qt.Key.Key_Down)
+        assert rect().y == (before.y // 8 + 1) * 8
+        x = rect().x
+        key(Qt.Key.Key_Left, Qt.KeyboardModifier.ControlModifier)
+        assert rect().x == x - 1
+
+        # Resizing the bottom-right corner snaps both dragged edges.
+        r = rect()
+        corner = (r.x + r.width, r.y + r.height)
+        _drag(canvas, corner, (corner[0] + 13, corner[1] + 11))
+        pump(app, 0.2)
+        r2 = rect()
+        assert (r2.x, r2.y) == (r.x, r.y)
+        # Each dragged edge on the grid, or on another widget's edge.
+        others = [slot.rect for slot in window.engine.slots
+                  if slot.rect is not None and slot.rect != r2]
+        xs = {v for o in others for v in (o.x, o.x + o.width)}
+        ys = {v for o in others for v in (o.y, o.y + o.height)}
+        right, bottom = r2.x + r2.width, r2.y + r2.height
+        assert right % 8 == 0 or right in xs
+        assert bottom % 8 == 0 or bottom in ys
+        assert (right, bottom) != (corner[0] + 13, corner[1] + 11)
+
+        # Shift keeps the proportions.
+        window._geometry_from_canvas(window._id_of(ref), Rect(16, 8, 160, 40))
+        pump(app, 0.2)
+        canvas.centerOn(100, 40)
+        pump(app, 0.1)
+        _drag(canvas, (176, 48), (216, 52), Qt.KeyboardModifier.ShiftModifier)
+        pump(app, 0.2)
+        r3 = rect()
+        assert (r3.x, r3.y) == (16, 8) and abs(r3.width - 4 * r3.height) <= 4
+        assert r3.width > 160
+
+        # With Snap off, a drag is exact too.
+        window.snap_box.setChecked(False)
+        r4 = rect()
+        grab = (r4.x + 30, r4.y + 10)
+        _drag(canvas, grab, (grab[0] + 3, grab[1] + 5))
+        pump(app, 0.2)
+        assert rect() == Rect(r4.x + 3, r4.y + 5, r4.width, r4.height)
     finally:
         window.undo.setClean()
         window.close()

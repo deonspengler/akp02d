@@ -12,7 +12,7 @@ from akp02d import config, layout, theme as theme_module
 from akp02d.app import App
 from akp02d.editor import simulate
 from akp02d.editor.document import Ref, ThemeDocument
-from akp02d.editor.engine import ERROR, WARNING, Engine, snap
+from akp02d.editor.engine import ERROR, WARNING, Engine
 from akp02d.layout import Rect
 
 STATIC = """\
@@ -93,7 +93,8 @@ def test_layout_problems(tmp_path: Path) -> None:
     text = STATIC.replace("x = 8\ny = 60", "x = 9\ny = 30")
     engine, _ = engine_for(text, tmp_path)
     messages = [(p.widget, p.message) for p in engine.problems()]
-    assert ("label#2", "x=9 is not colour-safe; nearest: 8 or 16") in messages
+    # Any position draws in true colour now: only the overlap is a problem.
+    assert not any(widget == "label#2" for widget, _ in messages)
     assert ("label#1", "overlaps 'label#2'") in messages
 
 
@@ -112,40 +113,6 @@ def test_theme_error_keeps_last_background(tmp_path: Path) -> None:
     engine.load(doc)
     assert engine.theme_error and "octarine" in engine.theme_error
     assert engine.frame().getpixel((400, 1000)) == (32, 48, 64)
-
-
-@pytest.mark.parametrize("orientation,inverted", [
-    (Orientation.PORTRAIT, False), (Orientation.PORTRAIT, True),
-    (Orientation.LANDSCAPE, False), (Orientation.LANDSCAPE, True)])
-def test_snap_always_lands_colour_safe(orientation, inverted) -> None:
-    screen = layout.screen_size(orientation)
-    for x in range(0, 40, 3):
-        for y in range(0, 40, 5):
-            for width in (50, 77):
-                for mode in ("move", "r", "l", "t", "b", "rb"):
-                    start = Rect(x, y, width, 60)
-                    rect = snap(start, orientation, inverted, screen, mode)
-                    axis, _, _, reflected = layout.bound_axis(start, orientation, inverted)
-                    # The rule constrains one edge: the near one, or the
-                    # far one on a reflected axis.
-                    edge = {("x", False): "l", ("x", True): "r",
-                            ("y", False): "t", ("y", True): "b"}[(axis, reflected)]
-                    reaches = mode == "move" or edge in mode
-                    if reaches:
-                        assert layout.is_aligned(rect, orientation, inverted), (rect, mode)
-                    else:
-                        # Dragging an edge on the free axis cannot fix the
-                        # bound one, and does not move the box to try.
-                        assert (rect.x, rect.y) == (start.x, start.y)
-
-
-def test_snap_moves_only_what_is_dragged() -> None:
-    screen = layout.screen_size(Orientation.PORTRAIT)
-    assert snap(Rect(59, 190, 160, 160), Orientation.PORTRAIT, False, screen) == \
-        Rect(56, 190, 160, 160)
-    # Inverted portrait binds the right edge: resizing it snaps the width.
-    assert snap(Rect(56, 190, 163, 160), Orientation.PORTRAIT, True, screen, "r") == \
-        Rect(56, 190, 166, 160)
 
 
 def test_simulated_data(tmp_path: Path) -> None:

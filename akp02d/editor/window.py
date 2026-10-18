@@ -38,7 +38,7 @@ from ..schema import SOURCE
 from .canvas import MIME, Box, Canvas
 from .controls import Segmented
 from .document import DocumentError, Ref, ThemeDocument
-from .engine import ERROR, Engine, Problem, snap
+from .engine import ERROR, GRID, Engine, Problem
 from .inspector import Inspector
 from .themes import ThemeList, ask_name, heading_button
 from . import style
@@ -340,6 +340,17 @@ class EditorWindow(QMainWindow):
         self.zoom_label.hide()
         strip_row.addWidget(self.zoom_label)
         strip_row.addStretch(1)
+        self.snap_box = QCheckBox("Snap")
+        self.snap_box.setChecked(True)
+        self.snap_box.setToolTip(
+            f"Snap to other widgets' edges and centres, the panel's centre, even "
+            f"gaps, and a {GRID} px grid.\nHold Ctrl to place freely. Shift keeps "
+            f"proportions while resizing, or one direction while moving.\n"
+            f"Arrow keys step to the next grid line (Shift: four); Ctrl+arrow "
+            f"moves one pixel.")
+        self.snap_box.toggled.connect(self._snap_toggled)
+        strip_row.addWidget(self.snap_box)
+        strip_row.addSpacing(8)
         self.boxes_box = QCheckBox("Outlines")
         self.boxes_box.setChecked(True)
         self.boxes_box.toggled.connect(self._boxes_toggled)
@@ -648,7 +659,7 @@ class EditorWindow(QMainWindow):
             self.canvas.reveal(self._id_of(ref))
 
     def _free_spot(self, width: int, height: int) -> Rect | None:
-        """A colour-safe place for a new box, near the middle of the view."""
+        """A free place for a new box, on the grid, near the middle of the view."""
         screen_w, screen_h = self.engine.size
         width, height = min(width, screen_w), min(height, screen_h)
         taken = [slot.rect for slot in self.engine.slots if slot.rect is not None]
@@ -656,13 +667,12 @@ class EditorWindow(QMainWindow):
         cx = int(min(max(view.center().x(), 0), screen_w))
         cy = int(min(max(view.center().y(), 0), screen_h))
         candidates = []
-        for y in range(0, screen_h - height + 1, 8):
-            for x in range(0, screen_w - width + 1, 8):
+        for y in range(0, screen_h - height + 1, GRID):
+            for x in range(0, screen_w - width + 1, GRID):
                 candidates.append((abs(x + width / 2 - cx) + abs(y + height / 2 - cy), x, y))
         candidates.sort()
         for _, x, y in candidates:
-            rect = snap(Rect(x, y, width, height), self.engine.orientation,
-                        self.config.device.inverted, (screen_w, screen_h))
+            rect = Rect(x, y, width, height)
             if not any(rect.overlaps(other) for other in taken):
                 return rect
         return None
@@ -698,6 +708,9 @@ class EditorWindow(QMainWindow):
         self.zoom_seg.set_value(mode)
         self.zoom_label.setText(f"{round(zoom * 100)}%")
         self.zoom_label.setVisible(mode == "")
+
+    def _snap_toggled(self, on: bool) -> None:
+        self.canvas.snapping = on
 
     def _boxes_toggled(self, on: bool) -> None:
         self.canvas.show_boxes = on

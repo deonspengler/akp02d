@@ -17,13 +17,12 @@ from typing import Any
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
-    QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QToolButton,
+    QMessageBox, QScrollArea, QSizePolicy, QSpinBox, QToolButton,
     QVBoxLayout, QWidget,
 )
 
-from akp02 import AKP02
 
-from .. import layout, sources
+from .. import sources
 from ..layout import Rect
 from ..plugins import BASE, lookup
 from ..schema import (
@@ -34,7 +33,7 @@ from ..table import REQUIRED
 from ..gradient import SHAPES
 from . import controls, style
 from .document import Ref, ThemeDocument
-from .engine import ERROR, Problem, Slot, snap
+from .engine import ERROR, Problem, Slot
 
 RESERVED = ("id", "x", "y", "width", "height", "fps")
 
@@ -406,36 +405,9 @@ class Inspector(QWidget):
             if rect != current:
                 self.geometry_edited.emit(ref, rect)
 
-        aligned = layout.is_aligned(current, orientation, inverted)
-        axis, value, extent, reflected = layout.bound_axis(current, orientation, inverted)
-        # Step a colour-safe slot at a time on the bound axis, so the
-        # arrows keep an aligned box aligned: moving by a whole slot keeps
-        # either edge's residue, and when the far edge is the one bound
-        # (a reflected axis), resizing must step whole slots too.
-        modulus = AKP02.SHORT_AXIS_ALIGN_MODULUS
-        spins[axis].setSingleStep(modulus)
-        if reflected:
-            spins["width" if axis == "x" else "height"].setSingleStep(modulus)
         for spin in spins.values():
             spin.valueChanged.connect(geometry_changed)
         form.addRow(grid)
-        # Only a box that breaks the rule says anything: a safe one is the
-        # normal case, and snapping keeps it so.
-        if not aligned:
-            status_row = QWidget()
-            status = QHBoxLayout(status_row)
-            status.setContentsMargins(0, 0, 0, 0)
-            nearest = layout.nearest_aligned(current, orientation, inverted)
-            note = QLabel(f"{axis}={value} is not colour-safe"
-                          + (f"; nearest {' or '.join(map(str, nearest))}" if nearest else ""))
-            note.setObjectName("bad")
-            note.setWordWrap(True)
-            status.addWidget(note, 1)
-            fix = QPushButton("Snap")
-            fix.clicked.connect(lambda: self.geometry_edited.emit(
-                ref, snap(current, orientation, inverted, screen)))
-            status.addWidget(fix)
-            form.addRow(status_row)
 
         fps = controls.NumberField(False, 0.001, 240.0)
         fps.setObjectName("opt.fps")
