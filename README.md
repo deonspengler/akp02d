@@ -5,93 +5,93 @@
 [![Python](https://img.shields.io/pypi/pyversions/akp02d)](https://pypi.org/project/akp02d/)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-Turns the Ajazz AKP02 panel into a live system display: clock, CPU,
-memory, disk, network, temperatures, an audio visualiser, what's
-playing and more, in themes you design with a drag-and-drop editor.
+A live system monitor for the Ajazz AKP02 Universal Secondary Screen: clock, CPU, memory,
+disk, network, temperatures, audio visualiser, and what's currently playing —
+all arranged in themes you design yourself.
 
 <img src="https://raw.githubusercontent.com/deonspengler/akp02d/main/docs/editor.png" width="800" alt="The akp02d theme editor: layers, a live preview of the panel, and the selected widget's settings">
 
 ## Install
 
-From the AUR ([akp02d](https://aur.archlinux.org/packages/akp02d)):
+**Arch (AUR):**
 
     yay -S akp02d
 
-### Other distributions
-
-With [pipx](https://pipx.pypa.io) and Python 3.13 or newer (add
-`--python 3.13` if your system Python is older):
+**Any other distribution (Python ≥ 3.13):**
 
     pipx install 'akp02d[editor]'
 
-Then install `cava` from your distribution (and `playerctl` and
-`pactl` if you want them), and let your user open the panel:
+Then install `cava` from your distro, plus `playerctl` and `pactl` if you
+want them. Grant your user access to the panel:
 
     sudo cp "$(akp02d --udev-rule)" /etc/udev/rules.d/
     sudo udevadm control --reload-rules
 
-Unplug the panel and plug it back in. To start akp02d with your
-session:
+Unplug the panel and plug it back in.
+
+## Run
+
+To start akp02d automatically with your session:
 
     mkdir -p ~/.config/systemd/user
     cat > ~/.config/systemd/user/akp02d.service <<'EOF'
-    [Unit]
-    Description=akp02d
+[Unit]
+Description=akp02d
 
-    [Service]
-    ExecStart=%h/.local/bin/akp02d
-    Restart=on-failure
-    RestartSec=5
+[Service]
+ExecStart=%h/.local/bin/akp02d
+Restart=on-failure
+RestartSec=5
 
-    [Install]
-    WantedBy=default.target
-    EOF
-
-## Start it
+[Install]
+WantedBy=default.target
+EOF
 
     systemctl --user enable --now akp02d
 
-The panel lights up with the default theme and starts again with your
-session. To run it by hand instead, just run `akp02d`.
+Or run it directly:
 
-## Make it yours
+    akp02d
+
+## Edit themes
 
     akp02d-edit
 
-The editor shows a live preview of the panel, no panel needed. Drag
-widgets in from **Add widget**, move and resize them, and pick colours,
-fonts and data sources on the right. **Apply to panel** puts your
-theme on the panel straight away.
+The editor shows a live preview of the panel — no hardware required. Drag
+widgets in from **Add widget**, move and resize them, and configure colours,
+fonts, and data sources on the right. **Apply to panel** pushes your theme
+to the panel immediately.
 
-Themes live in `~/.config/akp02d/themes/`, one folder each, so they are
-easy to back up or share. The bundled ones are copied there on first
-run and never overwritten; `akp02d --restore-theme default` brings back
-the original, keeping yours as `default.bak`.
+Themes live in `~/.config/akp02d/themes/`, one folder per theme, so they're
+easy to back up or share. Bundled themes are copied there on first run and
+never overwritten; `akp02d --restore-theme default` brings back the original,
+keeping yours as `default.bak`.
 
-## Control it
+## CLI
 
     akp02d ctl status              # what's showing
-    akp02d ctl themes              # your themes
+    akp02d ctl themes              # list your themes
     akp02d ctl theme neon --save   # switch, and keep it after a restart
     akp02d ctl brightness 60       # 0-100
 
-Settings for this machine, such as brightness and an upside-down panel
-(`inverted`), are in `~/.config/akp02d/akp02d.toml`.
+Machine-specific settings (brightness, inverted display, etc.) live in
+`~/.config/akp02d/akp02d.toml`.
 
-## If something is wrong
+## Troubleshooting
 
-    akp02d --check                 # checks the settings and theme, and says what is wrong
-    journalctl --user -u akp02d    # the service's log
+    akp02d --check                 # validate settings and theme
+    journalctl --user -u akp02d    # view the service log
 
-If akp02d cannot open the panel, unplug it and plug it back in: the
-access rule installed with akp02d applies to newly connected devices.
+If akp02d can't open the panel, unplug and replug it: the udev rule only
+applies to newly connected devices.
 
-## Use of AI
+## AI usage
 
-AI was used to generate the default theme's wallpaper and to assist with
-some of the code. Any code written by AI was checked and reviewed by a
-human, and akp02d is tested on a real panel.
+The AKP02 protocol was reverse-engineered and the device handling written by
+hand. AI assisted with some GUI and boilerplate code and the test suites;
+everything was reviewed. akp02d is tested on real hardware. The default
+theme's wallpaper is AI-generated.
 
 ## Licence
 
-GPL-3.0-or-later. See [LICENSE](LICENSE).
+[GPL-3.0-or-later](LICENSE).
