@@ -5,9 +5,9 @@
 [![Python](https://img.shields.io/pypi/pyversions/akp02d)](https://pypi.org/project/akp02d/)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-A live system monitor for the Ajazz AKP02 Universal Secondary Screen: clock, CPU, memory,
-disk, network, temperatures, audio visualiser, and what's currently playing —
-all arranged in themes you design yourself.
+A live system monitor for the Ajazz AKP02 Universal Secondary Screen, all arranged in themes
+you design yourself: clock, CPU, memory, disk, network, temperatures, audio visualiser, and
+what's currently playing.
 
 <img src="https://raw.githubusercontent.com/deonspengler/akp02d/main/docs/editor.png" width="800" alt="The akp02d theme editor: layers, a live preview of the panel, and the selected widget's settings">
 
@@ -64,9 +64,9 @@ Or run it directly:
 
     akp02d-edit
 
-The editor shows a live preview of the panel — no hardware required. Drag
-widgets in from **Add widget**, move and resize them, and configure colours,
-fonts, and data sources on the right. **Apply to panel** pushes your theme
+The editor shows a live preview of the panel (no hardware required). Drag
+widgets in from Add widget, move and resize them, and configure colours,
+fonts, and data sources on the right. Apply to panel pushes your theme
 to the panel immediately.
 
 Themes live in `~/.config/akp02d/themes/`, one folder per theme, so they're
